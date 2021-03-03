@@ -1,0 +1,2 @@
+ailment21,bit:dance regen slow haste stop shell safe reflect
+ailment22,bit:rage frozen death_protect morph casting removed interceptor float

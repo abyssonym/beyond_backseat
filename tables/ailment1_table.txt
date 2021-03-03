@@ -1,0 +1,2 @@
+ailment11,bit:dark zombie poison magitek vanish imp petrify death
+ailment12,bit:condemned near_fatal image silence berserk confusion seizure sleep
