@@ -17,10 +17,6 @@ try:
     else:
         config.read('beyond.cfg')
 
-    config = config._sections['Settings']
-    for key in list(config.keys()):
-        config[key.upper()] = config[key]
-
 except:
     raise Exception('Configuration file error. ')
 
@@ -69,7 +65,8 @@ class ParityClient():
         return data
 
 
-client = ParityClient(config['RETROARCH_ADDRESS'], config['RETROARCH_PORT'])
+client = ParityClient(config['Emulator']['address'],
+                      config['Emulator']['port'])
 
 
 class TableObject():

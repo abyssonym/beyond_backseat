@@ -1,5 +1,6 @@
+import random
 import traceback
-from ramtools import client, TableObject, classproperty
+from ramtools import classproperty, client, config, TableObject
 from time import sleep
 
 def log(msg):
@@ -62,15 +63,24 @@ class PlayerCharacter():
             mpo.read_data()
         return tuple(mpo.mp for mpo in self.mp_objects)
 
+    @property
+    def is_valid_target(self):
+        current_hp, max_hp = self.hp
+        return 1 <= current_hp <= max_hp
+
     def set_hp(self, hp):
         current_hp, max_hp = self.hp
         hp = max(0, min(hp, max_hp))
-        CurrentHPObject.get(self.offset_index).hp = hp
+        o = CurrentHPObject.get(self.offset_index)
+        o.hp = hp
+        o.write_data()
 
     def set_mp(self, mp):
         current_mp, max_mp = self.mp
         mp = max(0, min(mp, max_mp))
-        CurrentMPObject.get(self.offset_index).mp = mp
+        o = CurrentMPObject.get(self.offset_index)
+        o.mp = mp
+        o.write_data()
 
     def get_ailment(self, name):
         for ao in self.ailment_objects:
@@ -83,7 +93,10 @@ class PlayerCharacter():
             if name in to.bitnames:
                 ao = to.get(self.offset_index)
                 ao.read_data()
-                return ao.set_bit(name, value)
+                ao.set_bit(name, value)
+                ao.write_data()
+                return
+        raise Exception('Unknown ailment: %s' % name)
 
     def refresh(self):
         for o in self.hp_objects + self.mp_objects + self.ailment_objects:
@@ -98,11 +111,61 @@ class MonsterCharacter(PlayerCharacter):
         return self.index + len(PlayerCharacter.every)
 
 
+def handler_ailment(ailment_name, target='ally', focus='random'):
+    if target == 'ally':
+        candidates = PlayerCharacter.every
+    elif target == 'enemy':
+        candidates = MonsterCharacter.every
+    else:
+        candidates = PlayerCharacter.every + MonsterCharacter.every
+
+    candidates = [c for c in candidates if c.is_valid_target]
+    if not candidates:
+        return False
+
+    if focus == 'random':
+        chosen = random.choice(candidates)
+        chosen.set_ailment(ailment_name, True)
+    elif focus == 'all':
+        for c in candidates:
+            c.set_ailment(ailment_name, True)
+    else:
+        return False
+
+    return True
+
+
+def handler_fallenone():
+    for pc in PlayerCharacter.every:
+        if pc.is_valid_target:
+            pc.set_hp(1)
+
+    return True
+
+
+def dispatch(handler_name, *args, **kwargs):
+    handler = globals()['handler_%s' % handler_name]
+    return handler(*args, **kwargs)
+
+
+def run():
+    commands = sorted(config['Misc']['surprise'].split(','))
+    chosen = config['Commands'][random.choice(commands)]
+    if ':' in chosen:
+        handler_name, args = chosen.split(':')
+        args = args.split(',')
+        dispatch(handler_name, *args)
+    else:
+        dispatch(chosen)
+
+
 if __name__ == '__main__':
     try:
         ALL_OBJECTS = [g for g in globals().values()
                    if isinstance(g, type) and issubclass(g, TableObject)
                    and g not in [TableObject]]
+
+        UPDATE_INTERVAL = int(config['Misc']['update_interval'])
 
         client.connect_emulator()
 
@@ -117,14 +180,11 @@ if __name__ == '__main__':
 
         while True:
             try:
-                for m in PlayerCharacter.every:
-                    print(m.hp)
-                print()
-                sleep(3)
+                run()
             except (ConnectionRefusedError, IOError):
                 log(traceback.format_exc())
-                sleep(5)
                 client.connect_emulator()
+            sleep(UPDATE_INTERVAL)
     except:
         log(traceback.format_exc())
         input('Press enter to close this window. ')
