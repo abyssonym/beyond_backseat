@@ -1,0 +1,28 @@
+.def wait 80
+.def event_inverse BF
+.def lock_address e811
+
+c09a52: 00d7
+c0d700: ad lock_address
+        09 wait
+        8d lock_address
+.label loop
+        ad lock_address
+        29 wait
+        c9 00
+        d0 loop
+        ad lock_address
+        29 event_inverse
+        8d lock_address
+        5c d7 b8 c0        
+
+VALIDATION
+c09a52: 1ab9
+c0d700: ffffffff
+        ffffffff
+        ffffffff
+        ffffffff
+        ffffffff
+        ffffffff
+        ffffffff
+        ffffffff

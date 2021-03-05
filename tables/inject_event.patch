@@ -1,0 +1,33 @@
+.def event 40
+.def ready 20
+.def lock_address e811
+
+c0bcc1: 5c 40 d7 c0
+# note: entering this section in 16 bit mode
+c0d740: c5 af
+        80 idle
+        5c d3 bc c0
+.label idle
+        ad lock_address
+        29 event 00         # 16 bit AND 
+        f0 finished
+# activate event here
+        ad lock_address
+        09 ready 00
+        8d lock_address
+.label ready_wait
+        ad lock_address
+        29 ready 00
+        f0 go_time
+        80 ready_wait
+.label go_time
+        e2 20               # 8 bit accumulator
+        5c f9 bc c0
+.label finished
+        5c c5 bc c0
+
+VALIDATION
+
+c0bcc1: c5 af
+        f0 0e
+c0bcf9: a2 00 00

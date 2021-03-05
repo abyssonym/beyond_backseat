@@ -1,0 +1,18 @@
+.def ready 20
+.def event 40
+.def wait 80
+
+7e00e5: 5b 98 cc        # event pointer
+7e05f4: 5b 98 cc        # event pointer
+7e0871: 00 00 00 00     # zero out
+7e087e: 00              # zero out
+7e078e: 01
+
+# write event instructions here
+cc985b: b2 14 00 00
+        fc
+
+VALIDATION
+
+c0bcf9: a2 00 00
+cc985b: d2 cc

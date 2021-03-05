@@ -1,6 +1,6 @@
 import random
 import traceback
-from ramtools import classproperty, client, config, TableObject
+from ramtools import classproperty, client, config, LivePatch, TableObject
 from time import sleep
 
 def log(msg):
@@ -168,6 +168,26 @@ if __name__ == '__main__':
         UPDATE_INTERVAL = int(config['Misc']['update_interval'])
 
         client.connect_emulator()
+        lp = LivePatch('cleanup_opcode.patch', force_valid=True)
+        lp.apply_patch()
+        lp = LivePatch('inject_event.patch', force_valid=True)
+        lp.apply_patch()
+        lp = LivePatch('event_template.patch')
+        sleep(5)
+        lock = client.read_emulator(0x7e11e8, 1)[0]
+        READY, EVENT, WAIT = [int(lp.definitions[key], 0x10)
+                              for key in ['ready', 'event', 'wait']]
+        client.send_emulator(0x7e11e8, [lock | EVENT])
+        while True:
+            lock = client.read_emulator(0x7e11e8, 1)[0]
+            if lock & READY:
+                lp.apply_patch()
+                client.send_emulator(0x7e11e8, [lock ^ READY])
+            elif lock & WAIT:
+                lp.restore_backup()
+                client.send_emulator(0x7e11e8, [lock ^ WAIT])
+                break
+            sleep(0.1)
 
         for obj in ALL_OBJECTS:
             obj.load_all()

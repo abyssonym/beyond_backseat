@@ -39,6 +39,7 @@ class ParityClient():
                                       self.emulator_port))
 
     def send_emulator(self, address, data):
+        assert len(data) > 0
         MAX_WRITE_LENGTH = 4
         while data:
             subdata, data = data[:MAX_WRITE_LENGTH], data[MAX_WRITE_LENGTH:]
@@ -67,6 +68,149 @@ class ParityClient():
 
 client = ParityClient(config['Emulator']['address'],
                       config['Emulator']['port'])
+
+
+class LivePatch():
+    def __init__(self, patch_filename, force_valid=False):
+        self.client = client
+        self.patch_filename = patch_filename
+        patch_filepath = path.join(tblpath, patch_filename)
+        self.patch = {}
+        self.backup = {}
+        self.validation = {}
+        self.definitions = {}
+        self.labels = {}
+
+        validation_flag = False
+        previous_address = None
+        lenalpha = lambda s: (-len(s), s)
+        def verify_nonhex(s):
+            return any([c for c in s if c.lower() not in '0123456789abcdef'])
+
+        f = open(patch_filepath)
+        for line in f.readlines():
+            if '#' in line:
+                index = line.index('#')
+                line = line[:index]
+                assert '#' not in line
+            line = line.strip()
+            if not line:
+                continue
+
+            if 'VALIDATION' in line:
+                validation_flag = True
+                previous_address = None
+                continue
+
+            if validation_flag:
+                data = self.validation
+            else:
+                data = self.patch
+
+            if previous_address is not None:
+                address = previous_address + len(data[previous_address])
+            else:
+                address = None
+
+            if line.startswith('.def'):
+                assert not validation_flag
+                _, definition, substitution = line.split()
+                assert verify_nonhex(definition)
+                assert definition not in self.definitions
+                assert definition not in self.labels
+                self.definitions[definition] = substitution
+                continue
+
+            if line.startswith('.label'):
+                assert not validation_flag
+                _, label = line.split()
+                assert verify_nonhex(label)
+                assert label not in self.labels
+                assert label not in self.definitions
+                for l in self.labels:
+                    assert self.labels[l] is not None
+                self.labels[label] = None
+                continue
+
+            if ':' in line:
+                addr, code = line.split(':')
+            else:
+                addr, code = '', line
+            while '  ' in code:
+                code = code.replace('  ', ' ')
+            code = code.strip().split(' ')
+
+            for definition in sorted(self.definitions, key=lenalpha):
+                while definition in code:
+                    index = code.index(definition)
+                    code[index] = self.definitions[definition]
+
+            new_code = []
+            for c in code:
+                if verify_nonhex(c):
+                    new_code.append(c)
+                else:
+                    c = [int(c[i:i+2], 0x10) for i in range(0, len(c), 2)]
+                    new_code.extend(c)
+            code = new_code
+
+            if addr:
+                address = int(addr, 0x10)
+
+            data[address] = code
+            for l in self.labels:
+                if self.labels[l] is None:
+                    self.labels[l] = address
+                    break
+
+            previous_address = address
+
+        f.close()
+
+        for address, code in sorted(self.patch.items()):
+            for label in sorted(self.labels, key=lenalpha):
+                if label in code:
+                    index = code.index(label)
+                    jump = self.labels[label] - (address + 2)
+                    if jump < 0:
+                        jump = 0x100 + jump
+                    if not 0 <= jump <= 0xff:
+                        raise Exception('Label out of range %x - %s'
+                                        % (address, code))
+                    code[index] = jump
+            assert all([0 <= c <= 0xff for c in code])
+
+        if force_valid:
+            self.force_valid()
+
+        self.validate()
+        self.make_backup()
+
+    def validate(self):
+        for address, code in sorted(self.validation.items()):
+            result = self.client.read_emulator(address, len(code))
+            if result != code:
+                raise Exception('Patch `%s` validation failed.'
+                                % self.patch_filename)
+
+    def make_backup(self):
+        for address, code in sorted(self.patch.items()):
+            result = self.client.read_emulator(address, len(code))
+            self.backup[address] = result
+
+    def restore_backup(self):
+        self.write(self.backup)
+
+    def apply_patch(self):
+        self.write(self.patch)
+
+    def force_valid(self):
+        self.write(self.validation)
+
+    def write(self, data):
+        for address, code in sorted(data.items()):
+            print(hex(address), list(map(hex, code)))
+            self.client.send_emulator(address, code)
 
 
 class TableObject():
@@ -100,9 +244,14 @@ class TableObject():
         TABLE_FILE = path.join(tblpath, 'tables_list.txt')
         f = open(TABLE_FILE)
         for line in f.readlines():
+            if '#' in line:
+                index = line.index('#')
+                line = line[:index]
+                assert '#' not in line
             line = line.strip()
-            if (not line) or line[0] == '#':
+            if not line:
                 continue
+
             while '  ' in line:
                 line = line.replace('  ', ' ')
             class_name, specs_filename, address, number = line.split()
@@ -205,11 +354,7 @@ class TableObject():
                 raise TypeError('Unknown data type.')
             offset += length
 
-        try:
-            assert self.packed_data == packed_data
-        except:
-            print(self.packed_data, packed_data)
-            import pdb; pdb.set_trace()
+        assert self.packed_data == packed_data
 
     @property
     def packed_data(self):
