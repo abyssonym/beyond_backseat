@@ -5,7 +5,7 @@
 c0bcc1: 5c 40 d7 c0
 # note: entering this section in 16 bit mode
 c0d740: c5 af
-        80 idle
+        d0 idle
         5c d3 bc c0
 .label idle
         ad lock_address
@@ -31,3 +31,11 @@ VALIDATION
 c0bcc1: c5 af
         f0 0e
 c0bcf9: a2 00 00
+c0d740: ffffffff
+        ffffffff
+        ffffffff
+        ffffffff
+        ffffffff
+        ffffffff
+        ffffffff
+        ffffffff

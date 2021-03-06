@@ -1,7 +1,7 @@
 import random
 import traceback
 from ramtools import classproperty, client, config, LivePatch, TableObject
-from time import sleep
+from time import sleep, time
 
 def log(msg):
     print(msg)
@@ -159,6 +159,67 @@ def run():
         dispatch(chosen)
 
 
+class LiveEvent(LivePatch):
+    LOCK_ADDRESS = 0x7e11e8
+    IO_WAIT = 0.02
+    POLL_INTERVAL = 0.1
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.previous_poll = 0
+        self.state = {}
+        for key in ['READY', 'EVENT', 'WAIT']:
+            setattr(self, key,
+                    int(self.definitions[key.lower()], 0x10))
+            self.state[key.lower()] = False
+
+    def get_lock_status(self):
+        sleep(self.IO_WAIT)
+        return client.read_emulator(self.LOCK_ADDRESS, 1)[0]
+
+    def set_lock_bit(self, bit):
+        lock = self.get_lock_status()
+        if not lock & bit:
+            client.send_emulator(self.LOCK_ADDRESS, [lock | bit])
+
+    def unset_lock_bit(self, bit):
+        lock = self.get_lock_status()
+        if lock & bit:
+            client.send_emulator(self.LOCK_ADDRESS, [lock ^ bit])
+
+    def poll_wait(self):
+        now = time()
+        delta = now - self.previous_poll
+        if delta < self.POLL_INTERVAL:
+            sleep(self.POLL_INTERVAL - delta)
+        self.previous_poll = now
+
+    @property
+    def finished(self):
+        return self.state['wait']
+
+    def poll(self):
+        self.poll_wait()
+        if self.finished:
+            return
+
+        lock = self.get_lock_status()
+        if not (self.state['event']
+                or lock & (self.EVENT|self.READY|self.WAIT)):
+            self.set_lock_bit(self.EVENT)
+            self.state['event'] = True
+
+        if self.state['event']:
+            if lock & self.READY and not self.state['ready']:
+                self.apply_patch()
+                self.unset_lock_bit(self.READY)
+                self.state['ready'] = True
+            elif lock & self.WAIT:
+                self.restore_backup()
+                self.unset_lock_bit(self.WAIT)
+                self.state['wait'] = True
+
+
 if __name__ == '__main__':
     try:
         ALL_OBJECTS = [g for g in globals().values()
@@ -168,26 +229,19 @@ if __name__ == '__main__':
         UPDATE_INTERVAL = int(config['Misc']['update_interval'])
 
         client.connect_emulator()
-        lp = LivePatch('cleanup_opcode.patch', force_valid=True)
-        lp.apply_patch()
-        lp = LivePatch('inject_event.patch', force_valid=True)
-        lp.apply_patch()
-        lp = LivePatch('event_template.patch')
-        sleep(5)
-        lock = client.read_emulator(0x7e11e8, 1)[0]
-        READY, EVENT, WAIT = [int(lp.definitions[key], 0x10)
-                              for key in ['ready', 'event', 'wait']]
-        client.send_emulator(0x7e11e8, [lock | EVENT])
+        lock = client.read_emulator(LiveEvent.LOCK_ADDRESS, 1)[0]
+        client.send_emulator(LiveEvent.LOCK_ADDRESS, [0])
+        if lock:
+            sleep(1)
+
+        LivePatch('cleanup_opcode.patch', force_valid=True).apply_patch()
+        LivePatch('inject_event.patch', force_valid=True).apply_patch()
+        le = LiveEvent('event_initialization.patch', force_valid=True)
+        le2 = LiveEvent('event_rename.patch')
+        le2.set_label('character_index', 0)
         while True:
-            lock = client.read_emulator(0x7e11e8, 1)[0]
-            if lock & READY:
-                lp.apply_patch()
-                client.send_emulator(0x7e11e8, [lock ^ READY])
-            elif lock & WAIT:
-                lp.restore_backup()
-                client.send_emulator(0x7e11e8, [lock ^ WAIT])
-                break
-            sleep(0.1)
+            le.poll()
+            le2.poll()
 
         for obj in ALL_OBJECTS:
             obj.load_all()

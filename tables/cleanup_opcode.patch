@@ -9,7 +9,6 @@ c0d700: ad lock_address
 .label loop
         ad lock_address
         29 wait
-        c9 00
         d0 loop
         ad lock_address
         29 event_inverse

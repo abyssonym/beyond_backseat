@@ -198,6 +198,18 @@ class LivePatch():
             result = self.client.read_emulator(address, len(code))
             self.backup[address] = result
 
+    def set_label(self, label, new_data):
+        if isinstance(new_data, int):
+            new_data = [new_data]
+
+        address = self.labels[label]
+        old_data = self.patch[address]
+        if isinstance(old_data, int):
+            old_data = [old_data]
+
+        assert len(old_data) == len(new_data)
+        self.patch[address] = new_data
+
     def restore_backup(self):
         self.write(self.backup)
 
@@ -209,7 +221,8 @@ class LivePatch():
 
     def write(self, data):
         for address, code in sorted(data.items()):
-            print(hex(address), list(map(hex, code)))
+            if isinstance(code, int):
+                code = [code]
             self.client.send_emulator(address, code)
 
 

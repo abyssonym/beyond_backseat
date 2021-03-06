@@ -10,8 +10,9 @@
 
 # write event instructions here
 cc985b:
-        #4d 6d 3f    # siegfried
-        4d 44 3f    # ghost train
+        98
+.label character_index
+        ff
         96
         fc
 
