@@ -159,10 +159,10 @@ def run():
         dispatch(chosen)
 
 
-class LiveEvent(LivePatch):
+class LiveMixin(LivePatch):
+    POLL_INTERVAL = 0.1
     LOCK_ADDRESS = 0x7e11e8
     IO_WAIT = 0.02
-    POLL_INTERVAL = 0.1
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -173,19 +173,23 @@ class LiveEvent(LivePatch):
                     int(self.definitions[key.lower()], 0x10))
             self.state[key.lower()] = False
 
+    @property
+    def finished(self):
+        return self.state['wait']
+
     def get_lock_status(self):
         sleep(self.IO_WAIT)
         return client.read_emulator(self.LOCK_ADDRESS, 1)[0]
 
     def set_lock_bit(self, bit):
         lock = self.get_lock_status()
-        if not lock & bit:
+        if lock & bit != bit:
             client.send_emulator(self.LOCK_ADDRESS, [lock | bit])
 
     def unset_lock_bit(self, bit):
         lock = self.get_lock_status()
         if lock & bit:
-            client.send_emulator(self.LOCK_ADDRESS, [lock ^ bit])
+            client.send_emulator(self.LOCK_ADDRESS, [(lock | bit) ^ bit])
 
     def poll_wait(self):
         now = time()
@@ -193,10 +197,6 @@ class LiveEvent(LivePatch):
         if delta < self.POLL_INTERVAL:
             sleep(self.POLL_INTERVAL - delta)
         self.previous_poll = now
-
-    @property
-    def finished(self):
-        return self.state['wait']
 
     def poll(self):
         self.poll_wait()
@@ -206,18 +206,82 @@ class LiveEvent(LivePatch):
         lock = self.get_lock_status()
         if not (self.state['event']
                 or lock & (self.EVENT|self.READY|self.WAIT)):
-            self.set_lock_bit(self.EVENT)
-            self.state['event'] = True
+            self.do_event()
 
         if self.state['event']:
             if lock & self.READY and not self.state['ready']:
-                self.apply_patch()
-                self.unset_lock_bit(self.READY)
-                self.state['ready'] = True
+                self.do_ready()
             elif lock & self.WAIT:
-                self.restore_backup()
-                self.unset_lock_bit(self.WAIT)
-                self.state['wait'] = True
+                self.do_wait()
+
+
+class LiveEvent(LiveMixin):
+    def do_event(self):
+        self.set_lock_bit(self.EVENT)
+        self.state['event'] = True
+
+    def do_ready(self):
+        self.apply_patch()
+        self.unset_lock_bit(self.READY)
+        self.state['ready'] = True
+
+    def do_wait(self):
+        self.restore_backup()
+        self.unset_lock_bit(self.WAIT)
+        self.state['wait'] = True
+
+
+class LiveAirstrike(LiveMixin):
+    def __init__(self, command=0x02, spell=0x80,
+                 target='enemy', focus='all',
+                 force_valid=False):
+        patch_filename = 'battle_airstrike.patch'
+        self.attack_command = command
+        self.attack_spell = spell
+        if focus == 'all':
+            if target == 'ally':
+                self.attack_targets = 0x00f
+            elif target == 'enemy':
+                self.attack_targets = 0x3f0
+            else:
+                self.attack_targets = 0x3ff
+        else:
+            raise NotImplementedError
+        super().__init__(patch_filename, force_valid=force_valid)
+
+    def do_event(self):
+        self.set_lock_bit(self.EVENT)
+        self.state['event'] = True
+        sleep(2)
+
+    def do_ready(self):
+        self.set_label('attack_command', self.attack_command)
+        self.set_label('attack_spell', self.attack_spell)
+        attack_targets = [self.attack_targets & 0xff, self.attack_targets >> 8]
+        self.set_label('attack_targets', attack_targets)
+
+        actor_index = 0     # TODO: pick appropriate actor
+        caaa = int(self.definitions['counterattack_assignments_address'], 0x10)
+        caaa_actor = caaa + (actor_index * 2)
+        assert caaa_actor not in self.patch
+        self.patch[caaa_actor] = 0
+
+        tail = client.read_emulator(
+            self.labels['counterattacker_queue_tail'], 1)[0]
+
+        caqa = int(self.definitions['counterattacker_queue_address'], 0x10)
+        caqa_tail = caqa + tail
+        assert caqa_tail not in self.patch
+        self.patch[caqa_tail] = actor_index * 2
+
+        tail = (tail + 1) & 0xff
+        self.set_label('counterattacker_queue_tail', tail)
+
+        self.apply_patch()
+        self.unset_lock_bit(self.READY | self.EVENT)
+        self.state['ready'] = True
+        self.state['wait'] = True
+        assert self.finished
 
 
 if __name__ == '__main__':
@@ -236,12 +300,16 @@ if __name__ == '__main__':
 
         LivePatch('cleanup_opcode.patch', force_valid=True).apply_patch()
         LivePatch('inject_event.patch', force_valid=True).apply_patch()
+        LivePatch('battle_wait.patch', force_valid=True).apply_patch()
         le = LiveEvent('event_initialization.patch', force_valid=True)
-        le2 = LiveEvent('event_rename.patch')
-        le2.set_label('character_index', 0)
+        #le2 = LiveEvent('event_rename.patch')
+        #le2.set_label('character_index', 0)
+        #la = LiveAirstrike()
+        la = LiveAirstrike(spell=0x3f, target='ally')
         while True:
-            le.poll()
-            le2.poll()
+            #le.poll()
+            #le2.poll()
+            la.poll()
 
         for obj in ALL_OBJECTS:
             obj.load_all()

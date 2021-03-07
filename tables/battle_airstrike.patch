@@ -1,0 +1,27 @@
+.def wait 08
+.def event 04
+.def ready 02
+
+.def counterattack_assignments_address 7e32cd
+.def counterattacker_queue_address 7e3920
+
+.label attack_master_queue
+7e3184: 00
+
+.label attack_command
+7e3420: ff
+
+.label attack_spell
+7e3421: ff
+
+.label attack_targets
+7e3520: ffff
+
+.label attack_mp_cost
+7e3620: 0000
+
+#.label counterattacker_queue_head
+#7e3a68: ff
+
+.label counterattacker_queue_tail
+7e3a69: ff

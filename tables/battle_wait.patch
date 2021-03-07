@@ -1,0 +1,31 @@
+#.def wait 08
+.def event 04
+.def ready 02
+.def lock_address e811
+
+c21121: 5c 00 d8 c0
+c0d800: 
+        ad lock_address
+        29 event
+        d0 locking
+
+        ad 41 2f
+        2d 8f 3a
+        d0 waiting
+.label acting
+        5c 29 11 c2
+.label locking
+        ad lock_address
+        09 ready
+        8d lock_address
+.label waiting
+        5c 8b 11 c2
+
+VALIDATION
+
+c2111b: 08
+        e2 30
+        20 1f 4d
+c21121: ad 41 2f
+        2d 8f 3a
+        d0 62
