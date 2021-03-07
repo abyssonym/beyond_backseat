@@ -240,11 +240,11 @@ class LiveAirstrike(LiveMixin):
         self.attack_spell = spell
         if focus == 'all':
             if target == 'ally':
-                self.attack_targets = 0x00f
+                self.attack_targets = 0x000f
             elif target == 'enemy':
-                self.attack_targets = 0x3f0
+                self.attack_targets = 0x3f00
             else:
-                self.attack_targets = 0x3ff
+                self.attack_targets = 0x3f0f
         else:
             raise NotImplementedError
         super().__init__(patch_filename, force_valid=force_valid)
@@ -278,8 +278,10 @@ class LiveAirstrike(LiveMixin):
         self.set_label('counterattacker_queue_tail', tail)
 
         self.apply_patch()
-        self.unset_lock_bit(self.READY | self.EVENT)
+        self.unset_lock_bit(self.EVENT)
         self.state['ready'] = True
+        sleep(1)
+        self.unset_lock_bit(self.READY)
         self.state['wait'] = True
         assert self.finished
 
@@ -306,6 +308,8 @@ if __name__ == '__main__':
         #le2.set_label('character_index', 0)
         #la = LiveAirstrike()
         la = LiveAirstrike(spell=0x3f, target='ally')
+        la = LiveAirstrike(spell=0x4d, target='ally')
+        la = LiveAirstrike(command=0x05, spell=0x00, target='enemy')
         while True:
             #le.poll()
             #le2.poll()

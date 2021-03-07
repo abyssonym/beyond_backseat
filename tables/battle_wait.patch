@@ -21,6 +21,18 @@ c0d800:
 .label waiting
         5c 8b 11 c2
 
+c213d8: 22 40 d8 c0
+c0d840: ad lock_address
+        29 ready
+        d0 no_step
+        a9 10
+        04 b0
+        6b
+.label no_step
+        a9 10
+        14 b0
+        6b
+
 VALIDATION
 
 c2111b: 08
@@ -29,3 +41,5 @@ c2111b: 08
 c21121: ad 41 2f
         2d 8f 3a
         d0 62
+c213d8: a9 10
+        04 b0
