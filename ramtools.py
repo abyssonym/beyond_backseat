@@ -20,6 +20,11 @@ try:
 except:
     raise Exception('Configuration file error. ')
 
+
+def log(msg):
+    print(msg)
+
+
 class classproperty(property):
     def __get__(self, inst, cls):
         return self.fget(cls)
@@ -61,8 +66,8 @@ class ParityClient():
         data = data.decode('ascii').strip()
         data = [int(d, 0x10) for d in data.split(' ')[2:]]
         if len(data) != num_bytes:
-            raise IOError('Emulator RAM data read error: {0}/{1} bytes'.format(
-                len(data), num_bytes))
+            raise IOError('Emulator read error: {0:x} {1}/{2} bytes'.format(
+                address, len(data), num_bytes))
         return data
 
 
@@ -178,20 +183,23 @@ class LivePatch():
                         raise Exception('Label out of range %x - %s'
                                         % (address, code))
                     code[index] = jump
-            assert all([0 <= c <= 0xff for c in code])
+            if not all([0 <= c <= 0xff for c in code]):
+                raise Exception('Syntax error: %s' % self.patch_filename)
 
-        if force_valid:
-            self.force_valid()
-
-        self.validate()
+        self.validate(force_valid=force_valid)
         self.make_backup()
 
-    def validate(self):
+    def validate(self, force_valid=False):
         for address, code in sorted(self.validation.items()):
             result = self.client.read_emulator(address, len(code))
             if result != code:
-                raise Exception('Patch `%s` validation failed.'
-                                % self.patch_filename)
+                if force_valid:
+                    log('INFO: Patch %s not fresh.' % self.patch_filename)
+                    self.write(self.validation)
+                    return
+                else:
+                    raise Exception('Patch `%s` validation failed.'
+                                    % self.patch_filename)
 
     def make_backup(self):
         for address, code in sorted(self.patch.items()):
@@ -215,9 +223,6 @@ class LivePatch():
 
     def apply_patch(self):
         self.write(self.patch)
-
-    def force_valid(self):
-        self.write(self.validation)
 
     def write(self, data):
         for address, code in sorted(data.items()):

@@ -1,10 +1,12 @@
 import random
+import threading
 import traceback
-from ramtools import classproperty, client, config, LivePatch, TableObject
+from ramtools import classproperty, client, config, log, LivePatch, TableObject
 from time import sleep, time
 
-def log(msg):
-    print(msg)
+
+UPDATE_INTERVAL = int(config['Misc']['update_interval'])
+
 
 class CurrentHPObject(TableObject): pass
 class CurrentMPObject(TableObject): pass
@@ -15,7 +17,9 @@ class Ailment2SetObject(TableObject): pass
 class Ailment1ActiveObject(TableObject): pass
 class Ailment2ActiveObject(TableObject): pass
 
+
 class PlayerCharacter():
+    IO_WAIT = 0.02
     _every = []
 
     def __init__(self):
@@ -29,6 +33,10 @@ class PlayerCharacter():
     @property
     def offset_index(self):
         return self.index
+
+    @property
+    def targeting_flag(self):
+        return 1 << self.index
 
     @classmethod
     def get(cls, index):
@@ -54,12 +62,14 @@ class PlayerCharacter():
     @property
     def hp(self):
         for hpo in self.hp_objects:
+            sleep(self.IO_WAIT)
             hpo.read_data()
         return tuple(hpo.hp for hpo in self.hp_objects)
 
     @property
     def mp(self):
         for mpo in self.mp_objects:
+            sleep(self.IO_WAIT)
             mpo.read_data()
         return tuple(mpo.mp for mpo in self.mp_objects)
 
@@ -85,12 +95,14 @@ class PlayerCharacter():
     def get_ailment(self, name):
         for ao in self.ailment_objects:
             if name in ao.bitnames:
+                sleep(self.IO_WAIT)
                 ao.read_data()
                 return ao.get_bit(name)
 
     def set_ailment(self, name, value):
         for to in [Ailment1SetObject, Ailment2SetObject]:
             if name in to.bitnames:
+                sleep(self.IO_WAIT)
                 ao = to.get(self.offset_index)
                 ao.read_data()
                 ao.set_bit(name, value)
@@ -110,53 +122,9 @@ class MonsterCharacter(PlayerCharacter):
     def offset_index(self):
         return self.index + len(PlayerCharacter.every)
 
-
-def handler_ailment(ailment_name, target='ally', focus='random'):
-    if target == 'ally':
-        candidates = PlayerCharacter.every
-    elif target == 'enemy':
-        candidates = MonsterCharacter.every
-    else:
-        candidates = PlayerCharacter.every + MonsterCharacter.every
-
-    candidates = [c for c in candidates if c.is_valid_target]
-    if not candidates:
-        return False
-
-    if focus == 'random':
-        chosen = random.choice(candidates)
-        chosen.set_ailment(ailment_name, True)
-    elif focus == 'all':
-        for c in candidates:
-            c.set_ailment(ailment_name, True)
-    else:
-        return False
-
-    return True
-
-
-def handler_fallenone():
-    for pc in PlayerCharacter.every:
-        if pc.is_valid_target:
-            pc.set_hp(1)
-
-    return True
-
-
-def dispatch(handler_name, *args, **kwargs):
-    handler = globals()['handler_%s' % handler_name]
-    return handler(*args, **kwargs)
-
-
-def run():
-    commands = sorted(config['Misc']['surprise'].split(','))
-    chosen = config['Commands'][random.choice(commands)]
-    if ':' in chosen:
-        handler_name, args = chosen.split(':')
-        args = args.split(',')
-        dispatch(handler_name, *args)
-    else:
-        dispatch(chosen)
+    @property
+    def targeting_flag(self):
+        return 1 << (self.index + 8)
 
 
 class LiveMixin(LivePatch):
@@ -168,28 +136,36 @@ class LiveMixin(LivePatch):
         super().__init__(*args, **kwargs)
         self.previous_poll = 0
         self.state = {}
-        for key in ['READY', 'EVENT', 'WAIT']:
-            setattr(self, key,
-                    int(self.definitions[key.lower()], 0x10))
+        for key in ['EVENT', 'READY', 'VERIFY', 'WAIT']:
+            if key.lower() in self.definitions:
+                setattr(self, key,
+                        int(self.definitions[key.lower()], 0x10))
             self.state[key.lower()] = False
-
-    @property
-    def finished(self):
-        return self.state['wait']
 
     def get_lock_status(self):
         sleep(self.IO_WAIT)
-        return client.read_emulator(self.LOCK_ADDRESS, 1)[0]
+        self.lock = client.read_emulator(self.LOCK_ADDRESS, 1)[0]
+        return self.lock
 
     def set_lock_bit(self, bit):
         lock = self.get_lock_status()
         if lock & bit != bit:
             client.send_emulator(self.LOCK_ADDRESS, [lock | bit])
+            self.lock |= bit
 
     def unset_lock_bit(self, bit):
         lock = self.get_lock_status()
         if lock & bit:
             client.send_emulator(self.LOCK_ADDRESS, [(lock | bit) ^ bit])
+            self.lock = (self.lock | bit) ^ bit
+
+    def reset(self):
+        bits = 0
+        for key in ['EVENT', 'READY', 'VERIFY', 'WAIT']:
+            if hasattr(self, key):
+                bits |= getattr(self, key)
+            self.state[key.lower()] = False
+        self.unset_lock_bit(bits)
 
     def poll_wait(self):
         now = time()
@@ -204,21 +180,43 @@ class LiveMixin(LivePatch):
             return
 
         lock = self.get_lock_status()
-        if not (self.state['event']
-                or lock & (self.EVENT|self.READY|self.WAIT)):
+
+        if not (self.state['event'] or lock & self.EVENT):
             self.do_event()
 
         if self.state['event']:
-            if lock & self.READY and not self.state['ready']:
-                self.do_ready()
-            elif lock & self.WAIT:
-                self.do_wait()
+            for key in ['READY', 'VERIFY', 'WAIT']:
+                if (hasattr(self, key) and lock & getattr(self, key)
+                        and not self.state[key.lower()]):
+                    f = getattr(self, 'do_%s' % key.lower())
+                    f()
 
+        self.do_extra()
 
-class LiveEvent(LiveMixin):
     def do_event(self):
         self.set_lock_bit(self.EVENT)
         self.state['event'] = True
+
+    def do_ready(self):
+        pass
+
+    def do_verify(self):
+        pass
+
+    def do_wait(self):
+        pass
+
+    def do_extra(self):
+        pass
+
+    def run(self):
+        self.poll()
+
+
+class LiveEvent(LiveMixin):
+    @property
+    def finished(self):
+        return self.state['wait']
 
     def do_ready(self):
         self.apply_patch()
@@ -229,41 +227,112 @@ class LiveEvent(LiveMixin):
         self.restore_backup()
         self.unset_lock_bit(self.WAIT)
         self.state['wait'] = True
+        assert self.finished
 
 
 class LiveAirstrike(LiveMixin):
-    def __init__(self, command=0x02, spell=0x80,
-                 target='enemy', focus='all',
-                 force_valid=False):
+    LOCK_ADDRESS = 0x7e11e8
+    VERIFY_COMMAND = 0x7e11ea
+    VERIFY_SPELL = VERIFY_COMMAND + 1
+    current_airstrike = None
+    every = []
+
+    command_names = [
+        'fight', 'item', 'magic', 'morph', 'revert', 'steal', 'capture',
+        'swdtech', 'throw', 'tools', 'blitz', 'runic', 'lore', 'sketch',
+        'control', 'slot', 'rage', 'leap', 'mimic', 'dance', 'row', 'def',
+        'jump', 'xmagic', 'gprain', 'summon', 'health', 'shock', 'possess',
+        'magitek',
+        ]
+
+    def __init__(self, command=0x02, spell=0x80, target='enemy', focus='all',
+                 force_valid=False, name=None):
+        if isinstance(command, str):
+            command = self.command_names.index(command)
+
         patch_filename = 'battle_airstrike.patch'
         self.attack_command = command
         self.attack_spell = spell
-        if focus == 'all':
-            if target == 'ally':
-                self.attack_targets = 0x000f
-            elif target == 'enemy':
-                self.attack_targets = 0x3f00
-            else:
-                self.attack_targets = 0x3f0f
-        else:
-            raise NotImplementedError
+        self.target = target
+        self.focus = focus
+        self.name = name
         super().__init__(patch_filename, force_valid=force_valid)
+        LiveAirstrike.every.append(self)
 
-    def do_event(self):
-        self.set_lock_bit(self.EVENT)
-        self.state['event'] = True
-        sleep(2)
+    def __repr__(self):
+        s = self.name
+        if self.is_current:
+            s = '*' + s
+        s += '-{0:x}'.format(id(self))
+        return s
+
+    @property
+    def is_current(self):
+        return LiveAirstrike.current_airstrike is self
+
+    @property
+    def finished(self):
+        finished = self.state['wait']
+        if finished and self.is_current:
+            LiveAirstrike.current_airstrike = None
+        return finished
+
+    def reset(self):
+        if self.is_current:
+            LiveAirstrike.current_airstrike = None
+        super().reset()
+
+    def poll(self):
+        if LiveAirstrike.current_airstrike is None:
+            LiveAirstrike.current_airstrike = self
+        if self.is_current:
+            super().poll()
 
     def do_ready(self):
         self.set_label('attack_command', self.attack_command)
         self.set_label('attack_spell', self.attack_spell)
-        attack_targets = [self.attack_targets & 0xff, self.attack_targets >> 8]
+
+        target, focus = self.target, self.focus
+        actor_candidates = None
+        if focus == 'all':
+            if target == 'ally':
+                attack_targets = 0x000f
+            elif target == 'enemy':
+                attack_targets = 0x3f00
+            else:
+                attack_targets = 0x3f0f
+        elif focus == 'random':
+            if target not in ['ally', 'enemy']:
+                target = random.choice(['ally', 'enemy'])
+            if target == 'ally':
+                candidates = [p for p in PlayerCharacter.every
+                              if p.is_valid_target]
+                actor_candidates = candidates
+            elif target == 'enemy':
+                candidates = [m for m in MonsterCharacter.every
+                              if m.is_valid_target]
+            if not candidates:
+                self.reset()
+                return
+            attack_targets = random.choice(candidates).targeting_flag
+        else:
+            raise Exception('Unknown targeting focus.')
+
+        attack_targets = [attack_targets & 0xff, attack_targets >> 8]
         self.set_label('attack_targets', attack_targets)
 
-        actor_index = 0     # TODO: pick appropriate actor
+        if actor_candidates is None:
+            actor_candidates = [p for p in PlayerCharacter.every
+                                if p.is_valid_target]
+            if not actor_candidates:
+                self.reset()
+                return
+
+        actor_index = random.choice(actor_candidates).index
+        assert 0 <= actor_index <= 3
         caaa = int(self.definitions['counterattack_assignments_address'], 0x10)
         caaa_actor = caaa + (actor_index * 2)
-        assert caaa_actor not in self.patch
+        #assert caaa_actor not in self.patch
         self.patch[caaa_actor] = 0
 
         tail = client.read_emulator(
@@ -271,28 +340,116 @@ class LiveAirstrike(LiveMixin):
 
         caqa = int(self.definitions['counterattacker_queue_address'], 0x10)
         caqa_tail = caqa + tail
-        assert caqa_tail not in self.patch
+        #assert caqa_tail not in self.patch
         self.patch[caqa_tail] = actor_index * 2
 
         tail = (tail + 1) & 0xff
         self.set_label('counterattacker_queue_tail', tail)
-
-        self.apply_patch()
-        self.unset_lock_bit(self.EVENT)
         self.state['ready'] = True
-        sleep(1)
-        self.unset_lock_bit(self.READY)
+        self.set_lock_bit(self.VERIFY)
+        self.unset_lock_bit(self.WAIT)
+        self.client.send_emulator(self.VERIFY_COMMAND, [self.attack_command,
+                                                        self.attack_spell])
+        self.apply_patch()
+
+    def do_wait(self):
         self.state['wait'] = True
+        self.unset_lock_bit(self.EVENT|self.READY|self.WAIT|self.VERIFY)
+        self.client.send_emulator(self.VERIFY_COMMAND, [0, 0])
         assert self.finished
+
+    def do_extra(self):
+        if (self.is_current and self.state['event']
+                and not self.finished
+                and not self.lock & self.EVENT):
+            self.reset()
+
+
+def handler_event(patch_filename, name=None):
+    return LiveEvent(patch_filename)
+
+
+def handler_airstrike(command, spell, target, focus, name=None):
+    return LiveAirstrike(command, spell, target, focus, name=name)
+
+
+def dispatch_to_job(handler_name, *args, **kwargs):
+    handler = globals()['handler_%s' % handler_name]
+    return handler(*args, **kwargs)
+
+
+def command_to_job(command):
+    #log(command)
+    s = config['Commands'][command]
+    if ':' in s:
+        handler_name, args = s.split(':')
+        args = args.split(',')
+        args = [int(a[2:], 0x10) if a.startswith('0x') else
+                int(a) if a.isdigit() else a for a in args]
+    else:
+        handler_name, args = s, []
+    return dispatch_to_job(handler_name, *args, name=command)
+
+
+JOBS = []
+
+
+def process_jobs():
+    while True:
+        temp = [j for j in JOBS if isinstance(j, LiveAirstrike)]
+        if temp:
+            print(",".join([j.name for j in temp]))
+        for j in list(JOBS):
+            if j.finished:
+                JOBS.remove(j)
+            else:
+                j.run()
+        sleep(UPDATE_INTERVAL)
+
+
+def input_job_from_command_line():
+    command = input('COMMAND: ')
+    try:
+        job = command_to_job(command)
+        return job
+    except:
+        log(traceback.format_exc())
+
+
+def get_random_job():
+    commands = config['Misc']['random_commands']
+    commands = commands.split(',')
+    command = random.choice(commands)
+    job = command_to_job(command)
+    return job
+
+
+def acquire_jobs():
+    mode = config['Misc']['mode']
+    while True:
+        sleep(UPDATE_INTERVAL)
+        job = None
+        if mode == 'manual':
+            job = input_job_from_command_line()
+        elif mode == 'random':
+            job = get_random_job()
+        elif mode == 'burroughs':
+            raise NotImplementedError
+        else:
+            raise Exception('Unknown mode.')
+
+        if job is not None:
+            JOBS.append(job)
+            if mode == 'random':
+                sleep(int(config['Misc']['random_interval']))
 
 
 if __name__ == '__main__':
+    acquire_thread, process_thread = None, None
     try:
         ALL_OBJECTS = [g for g in globals().values()
                    if isinstance(g, type) and issubclass(g, TableObject)
                    and g not in [TableObject]]
-
-        UPDATE_INTERVAL = int(config['Misc']['update_interval'])
 
         client.connect_emulator()
         lock = client.read_emulator(LiveEvent.LOCK_ADDRESS, 1)[0]
@@ -303,17 +460,12 @@ if __name__ == '__main__':
         LivePatch('cleanup_opcode.patch', force_valid=True).apply_patch()
         LivePatch('inject_event.patch', force_valid=True).apply_patch()
         LivePatch('battle_wait.patch', force_valid=True).apply_patch()
-        le = LiveEvent('event_initialization.patch', force_valid=True)
-        #le2 = LiveEvent('event_rename.patch')
-        #le2.set_label('character_index', 0)
-        #la = LiveAirstrike()
-        la = LiveAirstrike(spell=0x3f, target='ally')
-        la = LiveAirstrike(spell=0x4d, target='ally')
-        la = LiveAirstrike(command=0x05, spell=0x00, target='enemy')
-        while True:
-            #le.poll()
-            #le2.poll()
-            la.poll()
+
+        SKIP_INITIALIZATION = True
+        if not SKIP_INITIALIZATION:
+            le = LiveEvent('event_initialization.patch', force_valid=True)
+            while not le.finished:
+                le.run()
 
         for obj in ALL_OBJECTS:
             obj.load_all()
@@ -324,12 +476,28 @@ if __name__ == '__main__':
         for i in range(6):
             MonsterCharacter()
 
+        acquire_thread = threading.Thread(target=acquire_jobs)
+        acquire_thread.start()
+        process_thread = threading.Thread(target=process_jobs)
+        process_thread.start()
+
         while True:
             try:
-                run()
-            except (ConnectionRefusedError, IOError):
+                if not acquire_thread.is_alive():
+                    acquire_thread = threading.Thread(target=acquire_jobs)
+                    acquire_thread.start()
+                if not process_thread.is_alive():
+                    client.connect_emulator()
+                    process_thread = threading.Thread(target=process_jobs)
+                    process_thread.start()
+            except(KeyboardInterrupt):
+                break
+            except:
                 log(traceback.format_exc())
                 client.connect_emulator()
+                if not process_thread.is_alive():
+                    process_thread = threading.Thread(target=process_jobs)
+                    process_thread.start()
             sleep(UPDATE_INTERVAL)
     except:
         log(traceback.format_exc())

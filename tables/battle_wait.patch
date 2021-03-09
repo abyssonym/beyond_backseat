@@ -1,14 +1,33 @@
-#.def wait 08
+.def wait 08
 .def event 04
 .def ready 02
+.def verify 01
+.def clear_airstrike f0
 .def lock_address e811
+.def verify_command_address ea11
+.def verify_spell_address eb11
 
+# this section resets the "wait" bit at the end of battle,
+# in the event that the airstrike did not occur
+c100af: 5c c0 d8 c0
+c100b3: ea
+c0d8c0: ad lock_address
+        29 clear_airstrike
+        8d lock_address
+        ad 4b 2f
+        30 continue_current_music
+        5c b4 00 c1
+.label continue_current_music
+        5c bb 00 c1
+
+# this section activates "waiting" mode when an airstrike is announced
 c21121: 5c 00 d8 c0
-c0d800: 
-        ad lock_address
-        29 event
+c0d800: ad lock_address
+        89 verify
+        d0 act_or_wait
+        89 event
         d0 locking
-
+.label act_or_wait
         ad 41 2f
         2d 8f 3a
         d0 waiting
@@ -21,6 +40,7 @@ c0d800:
 .label waiting
         5c 8b 11 c2
 
+# this section disables the "step forward" casting animation
 c213d8: 22 40 d8 c0
 c0d840: ad lock_address
         29 ready
@@ -33,13 +53,43 @@ c0d840: ad lock_address
         14 b0
         6b
 
+# this section confirms that the counterattack has executed
+c23666: 5c 80 d8 c0
+c0d880: ad lock_address
+        89 verify
+        f0 no_flag
+        ad verify_command_address
+        cd 20 34
+        d0 no_flag
+        ad verify_spell_address
+        cd 21 34
+        d0 no_flag
+        ad lock_address
+        09 wait
+        09 ready
+        49 ready
+        49 verify
+        0d lock_address
+        8d lock_address
+        a9 ff
+        8d verify_command_address
+        8d verify_spell_address
+.label no_flag
+        a9 01
+        14 b2
+        f0 repeat_casting
+        5c 6c 36 c2
+.label repeat_casting
+        5c 65 36 c2
+
 VALIDATION
 
-c2111b: 08
-        e2 30
-        20 1f 4d
+c100af: ad 4b 2f
+        30 07
 c21121: ad 41 2f
         2d 8f 3a
         d0 62
 c213d8: a9 10
         04 b0
+c23666: a9 01
+        14 b2

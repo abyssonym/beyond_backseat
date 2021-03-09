@@ -1,6 +1,7 @@
 .def wait 08
 .def event 04
 .def ready 02
+.def verify 01
 
 .def counterattack_assignments_address 7e32cd
 .def counterattacker_queue_address 7e3920
