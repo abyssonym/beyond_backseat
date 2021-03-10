@@ -1,6 +1,7 @@
 import socket
 from configparser import ConfigParser
-from os import path
+from datetime import datetime
+from os import path, getpid
 from sys import argv
 from time import sleep, time
 
@@ -21,16 +22,40 @@ except:
     raise Exception('Configuration file error. ')
 
 
-def log(msg):
-    print(msg)
-
-
 class classproperty(property):
     def __get__(self, inst, cls):
         return self.fget(cls)
 
 
+class Logger():
+    def __init__(self, filename=None):
+        self.logfile = None
+        if filename is not None:
+            self.set_logfile(filename)
+
+    def set_logfile(self, filename):
+        self.logfile = open(filename, 'a+')
+
+    def log(self, msg):
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        msg = '[{0} {1}] {2}'.format(timestamp, getpid(), msg)
+        print(msg)
+        if self.logfile is not None:
+            self.logfile.write(msg + '\n')
+            self.logfile.flush()
+
+
+logger = Logger()
+
+
+def log(msg):
+    logger.log(msg)
+
+
 class ParityClient():
+    NUM_RETRIES = 10
+    RETRY_INTERVAL = 0.02
+
     def __init__(self, emulator_address, emulator_port):
         self.emulator_address = emulator_address
         self.emulator_port = int(emulator_port)
@@ -59,13 +84,19 @@ class ParityClient():
         cmd = 'READ_CORE_RAM {0:0>6x} {1}'.format(address, num_bytes)
         self.emulator_socket.send(cmd.encode())
         expected_length = 21 + (3 * num_bytes)
-        try:
-            data = self.emulator_socket.recv(expected_length)
-        except socket.timeout:
-            raise IOError('Emulator not responding.')
-        data = data.decode('ascii').strip()
-        data = [int(d, 0x10) for d in data.split(' ')[2:]]
-        if len(data) != num_bytes:
+        for i in range(self.NUM_RETRIES):
+            try:
+                data = self.emulator_socket.recv(expected_length)
+            except socket.timeout:
+                raise IOError('Emulator not responding.')
+            data = data.decode('ascii').strip()
+            data = [int(d, 0x10) for d in data.split(' ')[2:]]
+            if len(data) == num_bytes and -1 not in data:
+                break
+            log('Warning: Emulator read error: {0:x} {1}/{2} bytes'.format(
+                address, len(data), num_bytes))
+            sleep(self.RETRY_INTERVAL * (1.5**i))
+        else:
             raise IOError('Emulator read error: {0:x} {1}/{2} bytes'.format(
                 address, len(data), num_bytes))
         return data
@@ -76,7 +107,7 @@ client = ParityClient(config['Emulator']['address'],
 
 
 class LivePatch():
-    def __init__(self, patch_filename, force_valid=False):
+    def __init__(self, patch_filename, force_valid=False, name=None):
         self.client = client
         self.patch_filename = patch_filename
         patch_filepath = path.join(tblpath, patch_filename)
@@ -85,6 +116,7 @@ class LivePatch():
         self.validation = {}
         self.definitions = {}
         self.labels = {}
+        self.name = name
 
         validation_flag = False
         previous_address = None
@@ -193,7 +225,7 @@ class LivePatch():
         for address, code in sorted(self.validation.items()):
             result = self.client.read_emulator(address, len(code))
             if result != code:
-                if force_valid:
+                if not force_valid:
                     log('INFO: Patch %s not fresh.' % self.patch_filename)
                     self.write(self.validation)
                     return

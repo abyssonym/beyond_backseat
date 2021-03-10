@@ -1,10 +1,15 @@
 import random
 import threading
 import traceback
-from ramtools import classproperty, client, config, log, LivePatch, TableObject
+from os import _exit
 from time import sleep, time
 
+from ramtools import (classproperty, client, config, logger, log,
+                      LivePatch, TableObject)
 
+
+logger.set_logfile('beyond_backseat.log')
+log('Beginning log.')
 UPDATE_INTERVAL = int(config['Misc']['update_interval'])
 
 
@@ -142,6 +147,14 @@ class LiveMixin(LivePatch):
                         int(self.definitions[key.lower()], 0x10))
             self.state[key.lower()] = False
 
+    def __repr__(self):
+        if hasattr(self, 'name'):
+            s = self.name
+        else:
+            s = self.__class__.name
+        s += '-{0:x}'.format(id(self))
+        return s
+
     def get_lock_status(self):
         sleep(self.IO_WAIT)
         self.lock = client.read_emulator(self.LOCK_ADDRESS, 1)[0]
@@ -246,24 +259,24 @@ class LiveAirstrike(LiveMixin):
         ]
 
     def __init__(self, command=0x02, spell=0x80, target='enemy', focus='all',
-                 force_valid=False, name=None):
+                 name=None):
+        patch_filename = 'battle_airstrike.patch'
+        super().__init__(patch_filename)
+
         if isinstance(command, str):
             command = self.command_names.index(command)
-
-        patch_filename = 'battle_airstrike.patch'
         self.attack_command = command
         self.attack_spell = spell
         self.target = target
         self.focus = focus
         self.name = name
-        super().__init__(patch_filename, force_valid=force_valid)
         LiveAirstrike.every.append(self)
 
     def __repr__(self):
         s = self.name
         if self.is_current:
-            s = '*' + s
-        s += '-{0:x}'.format(id(self))
+            s = '*{0}'.format(s)
+        s = '{0}-{1:x}'.format(s, id(self))
         return s
 
     @property
@@ -366,7 +379,7 @@ class LiveAirstrike(LiveMixin):
 
 
 def handler_event(patch_filename, name=None):
-    return LiveEvent(patch_filename)
+    return LiveEvent(patch_filename, name=name)
 
 
 def handler_airstrike(command, spell, target, focus, name=None):
@@ -379,16 +392,20 @@ def dispatch_to_job(handler_name, *args, **kwargs):
 
 
 def command_to_job(command):
-    #log(command)
-    s = config['Commands'][command]
-    if ':' in s:
-        handler_name, args = s.split(':')
-        args = args.split(',')
-        args = [int(a[2:], 0x10) if a.startswith('0x') else
-                int(a) if a.isdigit() else a for a in args]
-    else:
-        handler_name, args = s, []
-    return dispatch_to_job(handler_name, *args, name=command)
+    try:
+        s = config['Commands'][command]
+        if ':' in s:
+            handler_name, args = s.split(':')
+            args = args.split(',')
+            args = [int(a[2:], 0x10) if a.startswith('0x') else
+                    int(a) if a.isdigit() else a for a in args]
+        else:
+            handler_name, args = s, []
+        log('Running command: %s %s %s' % (command, handler_name, args))
+        return dispatch_to_job(handler_name, *args, name=command)
+    except:
+        log('Command error: %s' % command)
+        log(traceback.format_exc())
 
 
 JOBS = []
@@ -396,11 +413,9 @@ JOBS = []
 
 def process_jobs():
     while True:
-        temp = [j for j in JOBS if isinstance(j, LiveAirstrike)]
-        if temp:
-            print(",".join([j.name for j in temp]))
         for j in list(JOBS):
             if j.finished:
+                log('Completed job: %s' % j)
                 JOBS.remove(j)
             else:
                 j.run()
@@ -409,11 +424,8 @@ def process_jobs():
 
 def input_job_from_command_line():
     command = input('COMMAND: ')
-    try:
-        job = command_to_job(command)
-        return job
-    except:
-        log(traceback.format_exc())
+    job = command_to_job(command)
+    return job
 
 
 def get_random_job():
@@ -439,7 +451,9 @@ def acquire_jobs():
             raise Exception('Unknown mode.')
 
         if job is not None:
+            log('Adding job: %s' % job)
             JOBS.append(job)
+            log('Jobs: %s' % ','.join([j.name for j in JOBS]))
             if mode == 'random':
                 sleep(int(config['Misc']['random_interval']))
 
@@ -457,13 +471,13 @@ if __name__ == '__main__':
         if lock:
             sleep(1)
 
-        LivePatch('cleanup_opcode.patch', force_valid=True).apply_patch()
-        LivePatch('inject_event.patch', force_valid=True).apply_patch()
-        LivePatch('battle_wait.patch', force_valid=True).apply_patch()
+        LivePatch('cleanup_opcode.patch').apply_patch()
+        LivePatch('inject_event.patch').apply_patch()
+        LivePatch('battle_wait.patch').apply_patch()
 
         SKIP_INITIALIZATION = True
         if not SKIP_INITIALIZATION:
-            le = LiveEvent('event_initialization.patch', force_valid=True)
+            le = LiveEvent('event_initialization.patch')
             while not le.finished:
                 le.run()
 
@@ -481,6 +495,7 @@ if __name__ == '__main__':
         process_thread = threading.Thread(target=process_jobs)
         process_thread.start()
 
+        log('Beginning main loop.')
         while True:
             try:
                 if not acquire_thread.is_alive():
@@ -501,5 +516,9 @@ if __name__ == '__main__':
             sleep(UPDATE_INTERVAL)
     except:
         log(traceback.format_exc())
-        input('Press enter to close this window. ')
-        exit(0)
+        logger.logfile.close()
+        try:
+            input('Press enter to close this window. ')
+        except(KeyboardInterrupt):
+            pass
+        _exit(0)
