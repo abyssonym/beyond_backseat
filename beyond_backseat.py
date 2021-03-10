@@ -1,10 +1,10 @@
 import random
-import threading
 import traceback
 from os import _exit
 from time import sleep, time
 
 from ramtools import (classproperty, client, config, logger, log,
+                      initialize_ramtools, begin_job_management,
                       LivePatch, TableObject)
 
 
@@ -12,7 +12,6 @@ logger.set_logfile('beyond_backseat.log')
 if config['Misc']['mode'] == 'manual':
     logger.print_logs = False
 log('Beginning log.')
-UPDATE_INTERVAL = int(config['Misc']['update_interval'])
 
 
 class CurrentHPObject(TableObject): pass
@@ -380,148 +379,34 @@ class LiveAirstrike(LiveMixin):
             self.reset()
 
 
-def handler_event(patch_filename, name=None):
-    return LiveEvent(patch_filename, name=name)
+def handler_event(patch_filename, name):
+    return LiveEvent(patch_filename, name)
 
 
-def handler_airstrike(command, spell, target, focus, name=None):
-    return LiveAirstrike(command, spell, target, focus, name=name)
+def handler_airstrike(command, spell, target, focus, name):
+    return LiveAirstrike(command, spell, target, focus, name)
 
 
-def dispatch_to_job(handler_name, *args, **kwargs):
-    handler = globals()['handler_%s' % handler_name]
-    return handler(*args, **kwargs)
+def main():
+    initialize_ramtools(globals())
+    client.send_emulator(LiveEvent.LOCK_ADDRESS, [0])
 
+    LivePatch('cleanup_opcode.patch').apply_patch()
+    LivePatch('inject_event.patch').apply_patch()
+    LivePatch('battle_wait.patch').apply_patch()
 
-def command_to_job(command):
-    try:
-        s = config['Commands'][command]
-        if ':' in s:
-            handler_name, args = s.split(':')
-            args = args.split(',')
-            args = [int(a[2:], 0x10) if a.startswith('0x') else
-                    int(a) if a.isdigit() else a for a in args]
-        else:
-            handler_name, args = s, []
-        log('Running command: %s %s %s' % (command, handler_name, args))
-        return dispatch_to_job(handler_name, *args, name=command)
-    except:
-        log('Command error: %s' % command)
-        log(traceback.format_exc())
+    for i in range(4):
+        PlayerCharacter()
 
+    for i in range(6):
+        MonsterCharacter()
 
-JOBS = []
-
-
-def process_jobs():
-    while True:
-        for j in list(JOBS):
-            if j.finished:
-                log('Completed job: %s' % j)
-                JOBS.remove(j)
-            else:
-                j.run()
-        sleep(UPDATE_INTERVAL)
-
-
-def input_job_from_command_line():
-    logger.print_unprinted()
-    command = input('COMMAND: ')
-    if not command:
-        return
-    job = command_to_job(command)
-    return job
-
-
-def get_random_job():
-    commands = config['Misc']['random_commands']
-    commands = commands.split(',')
-    command = random.choice(commands)
-    job = command_to_job(command)
-    return job
-
-
-def acquire_jobs():
-    mode = config['Misc']['mode']
-    while True:
-        sleep(UPDATE_INTERVAL)
-        job = None
-        if mode == 'manual':
-            job = input_job_from_command_line()
-        elif mode == 'random':
-            job = get_random_job()
-        elif mode == 'burroughs':
-            raise NotImplementedError
-        else:
-            raise Exception('Unknown mode.')
-
-        if job is not None:
-            log('Adding job: %s' % job)
-            JOBS.append(job)
-            log('Jobs: %s' % ','.join([j.name for j in JOBS]))
-            if mode == 'random':
-                sleep(int(config['Misc']['random_interval']))
+    begin_job_management()
 
 
 if __name__ == '__main__':
-    acquire_thread, process_thread = None, None
     try:
-        ALL_OBJECTS = [g for g in globals().values()
-                   if isinstance(g, type) and issubclass(g, TableObject)
-                   and g not in [TableObject]]
-
-        client.connect_emulator()
-        lock = client.read_emulator(LiveEvent.LOCK_ADDRESS, 1)[0]
-        client.send_emulator(LiveEvent.LOCK_ADDRESS, [0])
-        if lock:
-            sleep(1)
-
-        LivePatch('cleanup_opcode.patch').apply_patch()
-        LivePatch('inject_event.patch').apply_patch()
-        LivePatch('battle_wait.patch').apply_patch()
-
-        SKIP_INITIALIZATION = True
-        if not SKIP_INITIALIZATION:
-            le = LiveEvent('event_initialization.patch')
-            while not le.finished:
-                le.run()
-
-        for obj in ALL_OBJECTS:
-            obj.load_all()
-
-        for i in range(4):
-            PlayerCharacter()
-
-        for i in range(6):
-            MonsterCharacter()
-
-        acquire_thread = threading.Thread(target=acquire_jobs, daemon=True)
-        acquire_thread.start()
-        process_thread = threading.Thread(target=process_jobs, daemon=True)
-        process_thread.start()
-
-        log('Beginning main loop.')
-        while True:
-            try:
-                if not acquire_thread.is_alive():
-                    acquire_thread = threading.Thread(target=acquire_jobs,
-                                                      daemon=True)
-                    acquire_thread.start()
-                if not process_thread.is_alive():
-                    client.connect_emulator()
-                    process_thread = threading.Thread(target=process_jobs,
-                                                      daemon=True)
-                    process_thread.start()
-            except(KeyboardInterrupt):
-                _exit(0)
-            except:
-                log(traceback.format_exc())
-                client.connect_emulator()
-                if not process_thread.is_alive():
-                    process_thread = threading.Thread(target=process_jobs,
-                                                      daemon=True)
-                    process_thread.start()
-            sleep(UPDATE_INTERVAL)
+        main()
     except:
         log(traceback.format_exc())
         logger.logfile.close()

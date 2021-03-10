@@ -1,8 +1,11 @@
+import random
 import socket
+import traceback
 from configparser import ConfigParser
 from datetime import datetime
-from os import path, getpid
+from os import _exit, path, getpid
 from sys import argv
+from threading import Thread
 from time import sleep, time
 
 try:
@@ -20,6 +23,10 @@ try:
 
 except:
     raise Exception('Configuration file error. ')
+
+
+UPDATE_INTERVAL = int(config['Misc']['update_interval'])
+HANDLERS = {}
 
 
 class classproperty(property):
@@ -441,3 +448,130 @@ class TableObject():
     def write_data(self):
         data = self.packed_data
         client.send_emulator(self.pointer, data)
+
+
+def dispatch_to_job(handler_name, *args, **kwargs):
+    handler = HANDLERS['handler_%s' % handler_name]
+    return handler(*args, **kwargs)
+
+
+def command_to_job(command):
+    try:
+        s = config['Commands'][command]
+        if ':' in s:
+            handler_name, args = s.split(':')
+            args = args.split(',')
+            args = [int(a[2:], 0x10) if a.startswith('0x') else
+                    int(a) if a.isdigit() else a for a in args]
+        else:
+            handler_name, args = s, []
+        log('Running command: %s %s %s' % (command, handler_name, args))
+        return dispatch_to_job(handler_name, *args, name=command)
+    except:
+        log('Command error: %s' % command)
+        log(traceback.format_exc())
+
+
+JOBS = []
+
+
+def process_jobs():
+    while True:
+        for j in list(JOBS):
+            if j.finished:
+                log('Completed job: %s' % j)
+                JOBS.remove(j)
+            else:
+                j.run()
+        sleep(UPDATE_INTERVAL)
+
+
+def input_job_from_command_line():
+    logger.print_unprinted()
+    try:
+        command = input('COMMAND: ')
+    except EOFError:
+        _exit(0)
+    if not command:
+        return
+    job = command_to_job(command)
+    return job
+
+
+def get_random_job():
+    commands = config['Misc']['random_commands']
+    commands = commands.split(',')
+    command = random.choice(commands)
+    job = command_to_job(command)
+    return job
+
+
+def acquire_jobs():
+    mode = config['Misc']['mode']
+    while True:
+        sleep(UPDATE_INTERVAL)
+        job = None
+        if mode == 'manual':
+            job = input_job_from_command_line()
+        elif mode == 'random':
+            job = get_random_job()
+        elif mode == 'burroughs':
+            raise NotImplementedError
+        else:
+            raise Exception('Unknown mode.')
+
+        if job is not None:
+            log('Adding job: %s' % job)
+            JOBS.append(job)
+            log('Jobs: %s' % ','.join([j.name for j in JOBS]))
+            if mode == 'random':
+                sleep(int(config['Misc']['random_interval']))
+
+
+def register_handlers(imported_globals):
+    for key in imported_globals:
+        if key.startswith('handler_'):
+            HANDLERS[key] = imported_globals[key]
+
+
+def load_objects(imported_globals):
+    objs = [g for g in imported_globals.values()
+            if isinstance(g, type) and issubclass(g, TableObject)
+            and g not in [TableObject]]
+
+    for obj in objs:
+        obj.load_all()
+
+
+def initialize_ramtools(imported_globals):
+    register_handlers(imported_globals)
+    load_objects(imported_globals)
+    client.connect_emulator()
+
+
+def begin_job_management():
+    acquire_thread, process_thread = None, None
+    acquire_thread = Thread(target=acquire_jobs, daemon=True)
+    acquire_thread.start()
+    process_thread = Thread(target=process_jobs, daemon=True)
+    process_thread.start()
+
+    log('Beginning main loop.')
+    while True:
+        sleep(UPDATE_INTERVAL)
+        try:
+            if not acquire_thread.is_alive():
+                acquire_thread = Thread(target=acquire_jobs, daemon=True)
+                acquire_thread.start()
+            if not process_thread.is_alive():
+                client.connect_emulator()
+                process_thread = Thread(target=process_jobs, daemon=True)
+                process_thread.start()
+        except(KeyboardInterrupt):
+            _exit(0)
+        except:
+            log(traceback.format_exc())
+            client.connect_emulator()
+            if not process_thread.is_alive():
+                process_thread = Thread(target=process_jobs, daemon=True)
+                process_thread.start()
