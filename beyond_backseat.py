@@ -9,6 +9,8 @@ from ramtools import (classproperty, client, config, logger, log,
 
 
 logger.set_logfile('beyond_backseat.log')
+if config['Misc']['mode'] == 'manual':
+    logger.print_logs = False
 log('Beginning log.')
 UPDATE_INTERVAL = int(config['Misc']['update_interval'])
 
@@ -423,7 +425,10 @@ def process_jobs():
 
 
 def input_job_from_command_line():
+    logger.print_unprinted()
     command = input('COMMAND: ')
+    if not command:
+        return
     job = command_to_job(command)
     return job
 
@@ -490,28 +495,31 @@ if __name__ == '__main__':
         for i in range(6):
             MonsterCharacter()
 
-        acquire_thread = threading.Thread(target=acquire_jobs)
+        acquire_thread = threading.Thread(target=acquire_jobs, daemon=True)
         acquire_thread.start()
-        process_thread = threading.Thread(target=process_jobs)
+        process_thread = threading.Thread(target=process_jobs, daemon=True)
         process_thread.start()
 
         log('Beginning main loop.')
         while True:
             try:
                 if not acquire_thread.is_alive():
-                    acquire_thread = threading.Thread(target=acquire_jobs)
+                    acquire_thread = threading.Thread(target=acquire_jobs,
+                                                      daemon=True)
                     acquire_thread.start()
                 if not process_thread.is_alive():
                     client.connect_emulator()
-                    process_thread = threading.Thread(target=process_jobs)
+                    process_thread = threading.Thread(target=process_jobs,
+                                                      daemon=True)
                     process_thread.start()
             except(KeyboardInterrupt):
-                break
+                _exit(0)
             except:
                 log(traceback.format_exc())
                 client.connect_emulator()
                 if not process_thread.is_alive():
-                    process_thread = threading.Thread(target=process_jobs)
+                    process_thread = threading.Thread(target=process_jobs,
+                                                      daemon=True)
                     process_thread.start()
             sleep(UPDATE_INTERVAL)
     except:

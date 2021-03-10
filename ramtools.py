@@ -28,10 +28,12 @@ class classproperty(property):
 
 
 class Logger():
-    def __init__(self, filename=None):
+    def __init__(self, filename=None, print_logs=True):
         self.logfile = None
         if filename is not None:
             self.set_logfile(filename)
+        self.print_logs = print_logs
+        self.unprinted = ''
 
     def set_logfile(self, filename):
         self.logfile = open(filename, 'a+')
@@ -39,10 +41,17 @@ class Logger():
     def log(self, msg):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         msg = '[{0} {1}] {2}'.format(timestamp, getpid(), msg)
-        print(msg)
+        if self.print_logs:
+            print(msg)
+        else:
+            self.unprinted += msg + '\n'
         if self.logfile is not None:
             self.logfile.write(msg + '\n')
             self.logfile.flush()
+
+    def print_unprinted(self):
+        print(self.unprinted.strip())
+        self.unprinted = ''
 
 
 logger = Logger()
