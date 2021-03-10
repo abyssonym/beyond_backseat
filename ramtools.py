@@ -3,7 +3,8 @@ import socket
 import traceback
 from configparser import ConfigParser
 from datetime import datetime
-from os import _exit, path, getpid
+from gzip import compress, decompress
+from os import _exit, path
 from sys import argv
 from threading import Thread
 from time import sleep, time
@@ -26,6 +27,7 @@ except:
 
 
 UPDATE_INTERVAL = int(config['Misc']['update_interval'])
+SERIAL_NUMBER = int(time())
 HANDLERS = {}
 
 
@@ -47,7 +49,7 @@ class Logger():
 
     def log(self, msg):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        msg = '[{0} {1}] {2}'.format(timestamp, getpid(), msg)
+        msg = '[{0} {1}] {2}'.format(timestamp, SERIAL_NUMBER, msg)
         if self.print_logs:
             print(msg)
         else:
@@ -450,6 +452,83 @@ class TableObject():
         client.send_emulator(self.pointer, data)
 
 
+class BurroughsClient():
+    ADDRESS = config['Server']['address']
+    PORT = int(config['Server']['port'])
+    POLL_INTERVAL = max(int(config['Server']['poll_interval']), 1)
+
+    def __init__(self):
+        self.previous_poll = 0
+        self.jobs = []
+        self.server_socket = None
+        self.connect_server()
+        self.seen = set([])
+
+    def poll_wait(self):
+        now = time()
+        delta = now - self.previous_poll
+        if delta < self.POLL_INTERVAL:
+            sleep(self.POLL_INTERVAL - delta)
+        self.previous_poll = now
+
+    def connect_server(self):
+        if self.server_socket and self.server_socket.fileno() >= 0:
+            self.server_socket.close()
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.server_socket.connect((self.ADDRESS, self.PORT))
+        self.server_socket.settimeout(self.POLL_INTERVAL)
+
+    def send_server(self, msg):
+        msg = '{0} {1}'.format(SERIAL_NUMBER, msg)
+        msg = msg.encode()
+        compressed_msg = b'!' + compress(msg)
+        if len(compressed_msg) < len(msg):
+            msg = compressed_msg
+        self.server_socket.send(msg)
+
+    def listen_server(self):
+        msg = self.server_socket.recv(4096)
+        if msg and msg[0] == ord('!'):
+            msg = decompress(msg[1:])
+        msg = msg.decode('ascii').strip()
+        return msg
+
+    def poll(self):
+        self.poll_wait()
+        self.send_server('?')
+        try:
+            msg = self.listen_server()
+            if msg == '?':
+                self.report()
+            elif msg == '.':
+                pass
+            elif msg:
+                index_commands = [ic.strip() for ic in msg.split(',')]
+                to_confirm = []
+                for index_command in index_commands:
+                    index, command = index_command.split('-',1)
+                    to_confirm.append(index)
+                    if index in self.seen:
+                        continue
+                    self.seen.add(index)
+                    self.jobs.append(command_to_job(command))
+                self.confirm(to_confirm)
+        except socket.timeout:
+            pass
+        if self.jobs:
+            j = self.jobs.pop(0)
+            return j
+
+    def report(self):
+        status = '#{0} {1}'.format(config['Chat']['channel'],
+                                   config['Chat']['allowed_users'])
+        self.send_server(status)
+
+    def confirm(self, to_confirm):
+        msg = '+{0}'.format(','.join(to_confirm))
+        self.send_server(msg)
+
+
 def dispatch_to_job(handler_name, *args, **kwargs):
     handler = HANDLERS['handler_%s' % handler_name]
     return handler(*args, **kwargs)
@@ -508,6 +587,11 @@ def get_random_job():
 
 def acquire_jobs():
     mode = config['Misc']['mode']
+    if mode == 'burroughs':
+        burroughs_client = BurroughsClient()
+    else:
+        burroughs_client = None
+
     while True:
         sleep(UPDATE_INTERVAL)
         job = None
@@ -516,7 +600,7 @@ def acquire_jobs():
         elif mode == 'random':
             job = get_random_job()
         elif mode == 'burroughs':
-            raise NotImplementedError
+            job = burroughs_client.poll()
         else:
             raise Exception('Unknown mode.')
 

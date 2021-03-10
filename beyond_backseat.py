@@ -149,11 +149,11 @@ class LiveMixin(LivePatch):
             self.state[key.lower()] = False
 
     def __repr__(self):
-        if hasattr(self, 'name'):
+        if hasattr(self, 'name') and self.name:
             s = self.name
         else:
-            s = self.__class__.name
-        s += '-{0:x}'.format(id(self))
+            s = self.__class__.__name__
+        s = '{0}-{1:x}'.format(s, id(self))
         return s
 
     def get_lock_status(self):
@@ -380,7 +380,7 @@ class LiveAirstrike(LiveMixin):
 
 
 def handler_event(patch_filename, name):
-    return LiveEvent(patch_filename, name)
+    return LiveEvent(patch_filename, force_valid=False, name=name)
 
 
 def handler_airstrike(command, spell, target, focus, name):
