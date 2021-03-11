@@ -27,7 +27,7 @@ except:
 
 
 UPDATE_INTERVAL = int(config['Misc']['update_interval'])
-SERIAL_NUMBER = int(time())
+SERIAL_NUMBER = int(config['Server']['serial_number'])
 HANDLERS = {}
 
 
