@@ -1,0 +1,37 @@
+INTRODUCTION
+
+Beyond Backseat is an event injection tool for FF6. It's designed to interface with your twitch chat, allowing viewers to influence game state directly by performing such actions as calling Palidor or summoning a phantom train. 
+
+Beyond Backseat is still early in development, so most of the supported commands are simply "airstrikes" (spells or attacks executed mid-battle). However, Beyond Backseat is already capable of executing arbitrary events on the map, so the future potential is limitless.
+
+SETUP
+
+For now, you will need RetroArch installed on your system to run Beyond Backseat. RetroArch requires some additional setup to get running. Follow these instructions:
+
+PART I: THE EMULATOR
+
+1. Install RetroArch 1.9 or above.
+2. Within RetroArch, navigate to Settings -> User Interface -> Show Advanced Settings. Turn it on.
+3. Navigate to Settings -> Network -> Network Commands (near the bottom). Turn it on.
+    3a. The Network Command Port should be listed as "55355". Don't change it, Beyond Backseat uses this port by default.
+4. Install a "BSNES Mercury" core in RetroArch. It has to be Mercury, no other core will work.
+    4a. On Windows, you may need to download the core manually from https://github.com/hunterk/libretro_builds/releases/download/Windows_64-bit/bsnes-mercury-bundle.zip . Unzip this to obtain a dll file, then load it with "Install or Restore a Core" inside of RetroArch.
+    4b. On Linux, RetroArch's build system should have no problem building the core for you automatically.
+
+PART II: THE SOFTWARE
+
+Beyond Backseat reads vital information from a configuration file, "beyond.cfg". It must be included in the same directory as the program. If you want to change what commands are available, or change the game mode, you must make edits to the configuration file. At the bottom of the file is a setting called "mode". This setting can be one of three options:
+
+    1. "manual" - In this mode you will be given a command prompt. Enter commands into this prompt to execute them.
+    2. "random" - This mode is designed to simulate chat control by choosing commands randomly at set intervals.
+    3. "burroughs" - Burroughs is my bot, who will join your twitch chat and accept commands from the users you designate in the configuration file in the "[Chat]" section. To send a command to Burroughs, preface it with !beyond in your chat. (for example, "!beyond h-bomb")
+
+Certain commands are available with reversed targeting for the purpose heckling the streamer, for example, "heckle-megalixir" uses a megalixir on enemy monsters. You are encouraged to browse the command list thoroughly and remove any commands that you would rather not see, either by deleting the line from the config file, by commenting it out with '#', or by adding the command to the "blacklist" setting.
+
+To begin playing, follow these instructions:
+
+1. Load up your game rom in RetroArch using the Mercury core.
+2. Start the game and let it run until you obtain control over your character.
+3. At this point, run the file "beyond_backseat.exe", or "beyond_backseat.py" in Python 3.
+4. You should see confirmation that the software is running in your command prompt window.
+5. In "burroughs" mode, when "burroughs_exe" joins your chat, you will be able to send commands with !beyond. Try sending a command, and the communication from the server should appear in your window. You are now connected to the session. Have fun!
