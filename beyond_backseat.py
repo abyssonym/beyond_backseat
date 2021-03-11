@@ -259,10 +259,10 @@ class LiveAirstrike(LiveMixin):
         'magitek',
         ]
 
-    def __init__(self, command=0x02, spell=0x80, target='enemy', focus='all',
-                 name=None):
+    def __init__(self, name, command=0x02, spell=0x80,
+                 target='enemy', focus='all', caster='ally'):
         patch_filename = 'battle_airstrike.patch'
-        super().__init__(patch_filename)
+        super().__init__(name, patch_filename)
 
         if isinstance(command, str):
             command = self.command_names.index(command)
@@ -271,6 +271,7 @@ class LiveAirstrike(LiveMixin):
         self.target = target
         self.focus = focus
         self.name = name
+        self.caster = caster
         LiveAirstrike.every.append(self)
 
     def __repr__(self):
@@ -315,35 +316,57 @@ class LiveAirstrike(LiveMixin):
                 attack_targets = 0x3f00
             else:
                 attack_targets = 0x3f0f
-        elif focus == 'random':
+        elif focus in ['random', 'self']:
             if target not in ['ally', 'enemy']:
                 target = random.choice(['ally', 'enemy'])
+
             if target == 'ally':
                 candidates = [p for p in PlayerCharacter.every
                               if p.is_valid_target]
-                actor_candidates = candidates
             elif target == 'enemy':
                 candidates = [m for m in MonsterCharacter.every
                               if m.is_valid_target]
+
+            if self.caster == target:
+                actor_candidates = candidates
+
             if not candidates:
                 self.reset()
                 return
-            attack_targets = random.choice(candidates).targeting_flag
+
+            chosen_target = random.choice(candidates)
+            attack_targets = chosen_target.targeting_flag
+            if focus == 'self':
+                assert self.caster == target
+                actor_candidates = [chosen_target]
         else:
             raise Exception('Unknown targeting focus.')
 
-        attack_targets = [attack_targets & 0xff, attack_targets >> 8]
-        self.set_label('attack_targets', attack_targets)
-
         if actor_candidates is None:
-            actor_candidates = [p for p in PlayerCharacter.every
-                                if p.is_valid_target]
+            if self.caster == 'ally':
+                actor_candidates = [p for p in PlayerCharacter.every
+                                    if p.is_valid_target]
+            elif self.caster == 'enemy':
+                actor_candidates = [m for m in MonsterCharacter.every
+                                    if m.is_valid_target]
             if not actor_candidates:
                 self.reset()
                 return
 
-        actor_index = random.choice(actor_candidates).index
-        assert 0 <= actor_index <= 3
+        actor_index = random.choice(actor_candidates).offset_index
+        if self.caster == 'ally':
+            assert 0 <= actor_index <= 3
+        elif self.caster == 'enemy':
+            assert 4 <= actor_index <= 9
+
+        if target == 'ally':
+            assert attack_targets & 0x000f
+        elif target == 'enemy':
+            assert attack_targets & 0x3f00
+
+        attack_targets = [attack_targets & 0xff, attack_targets >> 8]
+        self.set_label('attack_targets', attack_targets)
+
         caaa = int(self.definitions['counterattack_assignments_address'], 0x10)
         caaa_actor = caaa + (actor_index * 2)
         #assert caaa_actor not in self.patch
@@ -379,21 +402,21 @@ class LiveAirstrike(LiveMixin):
             self.reset()
 
 
-def handler_event(patch_filename, name):
-    return LiveEvent(patch_filename, force_valid=False, name=name)
+def handler_event(name, patch_filename):
+    return LiveEvent(name, patch_filename, force_valid=False)
 
 
-def handler_airstrike(command, spell, target, focus, name):
-    return LiveAirstrike(command, spell, target, focus, name)
+def handler_airstrike(name, command, spell, target, focus, caster='ally'):
+    return LiveAirstrike(name, command, spell, target, focus, caster=caster)
 
 
 def main():
     initialize_ramtools(globals())
     client.send_emulator(LiveEvent.LOCK_ADDRESS, [0])
 
-    LivePatch('cleanup_opcode.patch').apply_patch()
-    LivePatch('inject_event.patch').apply_patch()
-    LivePatch('battle_wait.patch').apply_patch()
+    LivePatch(None, 'cleanup_opcode.patch').apply_patch()
+    LivePatch(None, 'inject_event.patch').apply_patch()
+    LivePatch(None, 'battle_wait.patch').apply_patch()
 
     for i in range(4):
         PlayerCharacter()

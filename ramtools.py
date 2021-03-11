@@ -100,9 +100,9 @@ class ParityClient():
 
     def read_emulator(self, address, num_bytes):
         cmd = 'READ_CORE_RAM {0:0>6x} {1}'.format(address, num_bytes)
-        self.emulator_socket.send(cmd.encode())
-        expected_length = 21 + (3 * num_bytes)
         for i in range(self.NUM_RETRIES):
+            self.emulator_socket.send(cmd.encode())
+            expected_length = 21 + (3 * num_bytes)
             try:
                 data = self.emulator_socket.recv(expected_length)
             except socket.timeout:
@@ -125,7 +125,7 @@ client = ParityClient(config['Emulator']['address'],
 
 
 class LivePatch():
-    def __init__(self, patch_filename, force_valid=False, name=None):
+    def __init__(self, name, patch_filename, force_valid=False):
         self.client = client
         self.patch_filename = patch_filename
         patch_filepath = path.join(tblpath, patch_filename)
@@ -535,17 +535,28 @@ def dispatch_to_job(handler_name, *args, **kwargs):
 
 
 def command_to_job(command):
+    whitelist = [c.strip()
+                 for c in config['Misc']['whitelist_commands'].split(',')]
+    blacklist = [c.strip()
+                 for c in config['Misc']['blacklist_commands'].split(',')]
+
+    if whitelist and '*' not in whitelist and command not in whitelist:
+        log('Command %s not whitelisted.' % command)
+
+    if blacklist and command in blacklist or '*' in blacklist:
+        log('Command %s blacklisted.' % command)
+
     try:
         s = config['Commands'][command]
         if ':' in s:
             handler_name, args = s.split(':')
-            args = args.split(',')
+            args = [a.strip() for a in args.split(',')]
             args = [int(a[2:], 0x10) if a.startswith('0x') else
                     int(a) if a.isdigit() else a for a in args]
         else:
             handler_name, args = s, []
         log('Running command: %s %s %s' % (command, handler_name, args))
-        return dispatch_to_job(handler_name, *args, name=command)
+        return dispatch_to_job(handler_name, command, *args)
     except:
         log('Command error: %s' % command)
         log(traceback.format_exc())
@@ -556,7 +567,9 @@ JOBS = []
 
 def process_jobs():
     while True:
-        for j in list(JOBS):
+        myjobs = list(JOBS)
+        random.shuffle(myjobs)
+        for j in myjobs:
             if j.finished:
                 log('Completed job: %s' % j)
                 JOBS.remove(j)
@@ -579,7 +592,10 @@ def input_job_from_command_line():
 
 def get_random_job():
     commands = config['Misc']['random_commands']
-    commands = commands.split(',')
+    if commands == '*':
+        commands = list(config['Commands'].keys())
+    else:
+        commands = [c.strip() for c in commands.split(',')]
     command = random.choice(commands)
     job = command_to_job(command)
     return job
@@ -609,6 +625,8 @@ def acquire_jobs():
             JOBS.append(job)
             log('Jobs: %s' % ','.join([j.name for j in JOBS]))
             if mode == 'random':
+                while len(JOBS) > int(config['Misc']['random_max_queue']):
+                    JOBS.pop(0)
                 sleep(int(config['Misc']['random_interval']))
 
 
@@ -641,8 +659,13 @@ def begin_job_management():
     process_thread.start()
 
     log('Beginning main loop.')
+    counter = 0
     while True:
         sleep(UPDATE_INTERVAL)
+        if counter % 10 == 3:
+            acquire_thread.join()
+        if counter % 10 == 7:
+            process_thread.join()
         try:
             if not acquire_thread.is_alive():
                 acquire_thread = Thread(target=acquire_jobs, daemon=True)
@@ -659,3 +682,4 @@ def begin_job_management():
             if not process_thread.is_alive():
                 process_thread = Thread(target=process_jobs, daemon=True)
                 process_thread.start()
+        counter += 1
