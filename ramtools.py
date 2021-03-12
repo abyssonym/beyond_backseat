@@ -119,6 +119,12 @@ class ParityClient():
                 address, len(data), num_bytes))
         return data
 
+    def show_message(self, msg):
+        if ('show_messages' in config['Emulator'] and
+                config['Emulator']['show_messages'][:1].lower() == 'y'):
+            cmd = 'SHOW_MSG {0}'.format(msg)
+            self.emulator_socket.send(cmd.encode())
+
 
 client = ParityClient(config['Emulator']['address'],
                       config['Emulator']['port'])

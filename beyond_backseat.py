@@ -273,6 +273,7 @@ class LiveAirstrike(LiveMixin):
         self.name = name
         self.caster = caster
         LiveAirstrike.every.append(self)
+        client.show_message('Airstrike: {0}'.format(name.upper()))
 
     def __repr__(self):
         s = self.name
