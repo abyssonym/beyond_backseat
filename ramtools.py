@@ -548,9 +548,11 @@ def command_to_job(command):
 
     if whitelist and '*' not in whitelist and command not in whitelist:
         log('Command %s not whitelisted.' % command)
+        return
 
     if blacklist and command in blacklist or '*' in blacklist:
         log('Command %s blacklisted.' % command)
+        return
 
     try:
         s = config['Commands'][command]
