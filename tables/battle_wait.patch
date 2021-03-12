@@ -53,6 +53,17 @@ c0d840: ad lock_address
         14 b0
         6b
 
+# this section allows airstrikes to bypass imp/mute
+c23201: 5c 60 d8 c0
+c0d860: ad a5 11
+        f0 skip_mute_check
+        ad lock_address
+        89 verify
+        d0 skip_mute_check
+        5c 06 32 c2
+.label skip_mute_check
+        5c 25 32 c2
+
 # this section confirms that the counterattack has executed
 c23666: 5c 80 d8 c0
 c0d880: ad lock_address

@@ -25,7 +25,6 @@ class Ailment2ActiveObject(TableObject): pass
 
 
 class PlayerCharacter():
-    IO_WAIT = 0.02
     _every = []
 
     def __init__(self):
@@ -67,22 +66,26 @@ class PlayerCharacter():
 
     @property
     def hp(self):
-        for hpo in self.hp_objects:
-            sleep(self.IO_WAIT)
-            hpo.read_data()
         return tuple(hpo.hp for hpo in self.hp_objects)
 
     @property
     def mp(self):
-        for mpo in self.mp_objects:
-            sleep(self.IO_WAIT)
-            mpo.read_data()
         return tuple(mpo.mp for mpo in self.mp_objects)
 
     @property
     def is_valid_target(self):
+        self.refresh()
         current_hp, max_hp = self.hp
-        return 1 <= current_hp <= max_hp
+        if not (1 <= current_hp <= max_hp):
+            return False
+
+        INVALID_AILMENTS = ['zombie', 'petrify', 'death',
+                            'sleep', 'stop', 'frozen', 'removed']
+        for ailment in INVALID_AILMENTS:
+            if self.get_ailment(ailment):
+                return False
+
+        return True
 
     def set_hp(self, hp):
         current_hp, max_hp = self.hp
@@ -101,14 +104,11 @@ class PlayerCharacter():
     def get_ailment(self, name):
         for ao in self.ailment_objects:
             if name in ao.bitnames:
-                sleep(self.IO_WAIT)
-                ao.read_data()
                 return ao.get_bit(name)
 
     def set_ailment(self, name, value):
         for to in [Ailment1SetObject, Ailment2SetObject]:
             if name in to.bitnames:
-                sleep(self.IO_WAIT)
                 ao = to.get(self.offset_index)
                 ao.read_data()
                 ao.set_bit(name, value)
