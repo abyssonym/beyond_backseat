@@ -87,7 +87,9 @@ class ParityClient():
                                       self.emulator_port))
 
     def send_emulator(self, address, data):
-        assert len(data) > 0
+        if len(data) == 0:
+            log('Warning: Zero-length write at {0:x}.'.format(address))
+            return
         MAX_WRITE_LENGTH = 4
         while data:
             subdata, data = data[:MAX_WRITE_LENGTH], data[MAX_WRITE_LENGTH:]
@@ -135,6 +137,7 @@ class LivePatch():
         self.client = client
         self.patch_filename = patch_filename
         patch_filepath = path.join(tblpath, patch_filename)
+        self.master = []
         self.patch = {}
         self.backup = {}
         self.validation = {}
@@ -143,10 +146,7 @@ class LivePatch():
         self.name = name
 
         validation_flag = False
-        previous_address = None
-        lenalpha = lambda s: (-len(s), s)
-        def verify_nonhex(s):
-            return any([c for c in s if c.lower() not in '0123456789abcdef'])
+        self.lenalpha = lambda s: (-len(s), s)
 
         f = open(patch_filepath)
         for line in f.readlines():
@@ -158,57 +158,40 @@ class LivePatch():
             if not line:
                 continue
 
-            if 'VALIDATION' in line:
-                validation_flag = True
-                previous_address = None
+            if line == 'VALIDATION':
+                self.master.append(line)
                 continue
-
-            if validation_flag:
-                data = self.validation
-            else:
-                data = self.patch
-
-            if previous_address is not None:
-                address = previous_address + len(data[previous_address])
-            else:
-                address = None
 
             if line.startswith('.def'):
                 assert not validation_flag
                 _, definition, substitution = line.split()
-                assert verify_nonhex(definition)
+                assert self.verify_nonhex(definition)
                 assert definition not in self.definitions
                 assert definition not in self.labels
                 self.definitions[definition] = substitution
                 continue
 
             if line.startswith('.label'):
-                assert not validation_flag
                 _, label = line.split()
-                assert verify_nonhex(label)
-                assert label not in self.labels
-                assert label not in self.definitions
-                for l in self.labels:
-                    assert self.labels[l] is not None
-                self.labels[label] = None
+                self.master.append(('.label', label))
                 continue
 
             if ':' in line:
                 addr, code = line.split(':')
             else:
-                addr, code = '', line
+                addr, code = None, line
             while '  ' in code:
                 code = code.replace('  ', ' ')
             code = code.strip().split(' ')
 
-            for definition in sorted(self.definitions, key=lenalpha):
+            for definition in sorted(self.definitions, key=self.lenalpha):
                 while definition in code:
                     index = code.index(definition)
                     code[index] = self.definitions[definition]
 
             new_code = []
             for c in code:
-                if verify_nonhex(c):
+                if self.verify_nonhex(c):
                     new_code.append(c)
                 else:
                     c = [int(c[i:i+2], 0x10) for i in range(0, len(c), 2)]
@@ -216,8 +199,47 @@ class LivePatch():
             code = new_code
 
             if addr:
-                address = int(addr, 0x10)
+                addr = int(addr, 0x10)
 
+            self.master.append((addr, code))
+
+        f.close()
+
+        self.generate_patch_from_master()
+        self.validate(force_valid=force_valid)
+
+    def verify_nonhex(self, s):
+        return any([c for c in s if c.lower() not in '0123456789abcdef'])
+
+    def generate_patch_from_master(self):
+        validation_flag = False
+        self.labels = {}
+        self.patch, self.validation = {}, {}
+        data = self.patch
+        previous_address = None
+        for line in self.master:
+            if line == 'VALIDATION':
+                validation_flag = True
+                data = self.validation
+                continue
+
+            a, b = line
+            if a == '.label':
+                assert not validation_flag
+                label = b
+                assert self.verify_nonhex(label)
+                assert label not in self.labels
+                assert label not in self.definitions
+                for l in self.labels:
+                    assert self.labels[l] is not None
+                self.labels[label] = None
+                continue
+
+            address, code = a, b
+            if address is None:
+                address = previous_address + len(data[previous_address])
+
+            assert isinstance(address, int)
             data[address] = code
             for l in self.labels:
                 if self.labels[l] is None:
@@ -226,10 +248,8 @@ class LivePatch():
 
             previous_address = address
 
-        f.close()
-
         for address, code in sorted(self.patch.items()):
-            for label in sorted(self.labels, key=lenalpha):
+            for label in sorted(self.labels, key=self.lenalpha):
                 if label in code:
                     index = code.index(label)
                     jump = self.labels[label] - (address + 2)
@@ -242,7 +262,6 @@ class LivePatch():
             if not all([0 <= c <= 0xff for c in code]):
                 raise Exception('Syntax error: %s' % self.patch_filename)
 
-        self.validate(force_valid=force_valid)
         self.make_backup()
 
     def validate(self, force_valid=False):
@@ -262,7 +281,7 @@ class LivePatch():
             result = self.client.read_emulator(address, len(code))
             self.backup[address] = result
 
-    def set_label(self, label, new_data):
+    def set_label(self, label, new_data, change_length=False):
         if isinstance(new_data, int):
             new_data = [new_data]
 
@@ -271,20 +290,36 @@ class LivePatch():
         if isinstance(old_data, int):
             old_data = [old_data]
 
-        assert len(old_data) == len(new_data)
-        self.patch[address] = new_data
+        index = self.master.index(('.label', label))
+        master_addr, to_replace = self.master[index+1]
+        assert to_replace == old_data
+        self.master[index+1] = (master_addr, new_data)
+        assert self.patch[self.labels[label]] == old_data
+        self.generate_patch_from_master()
+        if len(new_data) > 0:
+            assert self.patch[self.labels[label]] == new_data
+
+        if not change_length:
+            assert len(old_data) == len(new_data)
+            assert address == self.labels[label]
 
     def restore_backup(self):
-        self.write(self.backup)
+        self.write(self.backup, force=True)
 
     def apply_patch(self):
         self.write(self.patch)
 
-    def write(self, data):
+    def write(self, data, force=False):
+        written_zones = []
         for address, code in sorted(data.items()):
+            for low, high in written_zones:
+                if low <= address < high and not force:
+                    self.restore_backup()
+                    raise Exception('Write conflict in %s patch. %x %x %x' % (self.name, low, address, high))
             if isinstance(code, int):
                 code = [code]
             self.client.send_emulator(address, code)
+            written_zones.append((address, address + len(code)))
 
 
 class TableObject():

@@ -1,0 +1,34 @@
+.def ready 20
+.def event 40
+.def wait 80
+
+7e00e5: 5b 98 cc        # event pointer
+7e05f4: 5b 98 cc        # event pointer
+7e0871: 00 00 00 00     # zero out
+7e087e: 00              # zero out
+7e078e: 01
+
+# write event instructions here
+cc985b: 3d 00 3d 01 3d 02 3d 03
+        3d 04 3d 05 3d 06 3d 07
+        3d 08 3d 09 3d 0a 3d 0b
+        3d 0c 3d 0d 3d 0e 3d 0f
+        99 01 00 00
+        47
+#6b MM 0M XX YY 00
+# MMM:1f64,XX:1fc0,YY:1fc1
+        6b
+.label map_index
+        ff ff
+.label x_coordinate
+        ff
+.label y_coordinate
+        ff
+        00
+        96
+        fc
+
+VALIDATION
+
+c0bcf9: a2 00 00
+cc985b: d2 cc

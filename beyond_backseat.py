@@ -14,6 +14,7 @@ if config['Misc']['mode'] == 'manual':
 log('Beginning log.')
 
 
+class PartyDataObject(TableObject): pass
 class CurrentHPObject(TableObject): pass
 class CurrentMPObject(TableObject): pass
 class MaxHPObject(TableObject): pass
@@ -404,11 +405,72 @@ class LiveAirstrike(LiveMixin):
 
 
 def handler_event(name, patch_filename):
-    return LiveEvent(name, patch_filename, force_valid=False)
+    return LiveEvent(name, patch_filename)
 
 
 def handler_airstrike(name, command, spell, target, focus, caster='ally'):
     return LiveAirstrike(name, command, spell, target, focus, caster=caster)
+
+
+class PartyChangeEvent(LiveEvent):
+    MAP_INDEX_ADDRESS = 0x7e1f64
+    MAP_X_ADDRESS = 0x7e00af
+    MAP_Y_ADDRESS = 0x7e00b0
+
+    def __init__(self, name, patch_filename, locked_character=None):
+        self.locked_character = locked_character
+        super().__init__(name, patch_filename)
+
+    def check_valid(self):
+        for pdo in PartyDataObject.every:
+            pdo.read_data()
+
+        if any([pdo.get_bit('p2') or pdo.get_bit('p3')
+                for pdo in PartyDataObject.every]):
+            return False
+
+        if any([pdo.get_bit('p1') for pdo in PartyDataObject.every]):
+            return True
+
+        return False
+
+    def do_event(self):
+        if not self.check_valid():
+            return
+        super().do_event()
+
+    def do_ready(self):
+        if self.locked_character is not None:
+            remove_characters = []
+            for pdo in PartyDataObject.every:
+                if pdo.get_bit('p1'):
+                    if pdo.index == self.locked_character:
+                        continue
+                    remove_characters.extend([0x3f, pdo.index, 0x00])
+            self.set_label('remove_characters', remove_characters,
+                           change_length=True)
+        map_index = self.client.read_emulator(self.MAP_INDEX_ADDRESS, 2)
+        map_index = [map_index[0], map_index[1] & 1]
+        self.set_label('map_index', map_index)
+
+        map_x = self.client.read_emulator(self.MAP_X_ADDRESS, 1)
+        self.set_label('x_coordinate', map_x)
+        map_y = self.client.read_emulator(self.MAP_Y_ADDRESS, 1)
+        self.set_label('y_coordinate', map_y)
+
+        if self.name == 'banon':
+            self.client.show_message('Good news! BANON is here to help!')
+
+        self.make_backup()
+        super().do_ready()
+
+
+def handler_banon(name):
+    return PartyChangeEvent(name, 'event_banon.patch', locked_character=0xe)
+
+
+def handler_party_change(name):
+    return PartyChangeEvent(name, 'event_party_change.patch')
 
 
 def main():
