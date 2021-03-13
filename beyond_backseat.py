@@ -8,6 +8,9 @@ from ramtools import (classproperty, client, config, logger, log,
                       LivePatch, TableObject)
 
 
+VERSION = 2
+
+
 logger.set_logfile('beyond_backseat.log')
 if config['Misc']['mode'] == 'manual':
     logger.print_logs = False
@@ -537,6 +540,7 @@ def handler_airship(name, world, vehicle):
 
 
 def main():
+    log('You are running Beyond Backseat version %s.' % VERSION, debug=True)
     initialize_ramtools(globals())
     client.send_emulator(LiveEvent.LOCK_ADDRESS, [0])
 
@@ -557,7 +561,7 @@ if __name__ == '__main__':
     try:
         main()
     except:
-        log(traceback.format_exc())
+        log(traceback.format_exc(), debug=True)
         logger.logfile.close()
         try:
             input('Press enter to close this window. ')

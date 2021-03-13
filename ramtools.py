@@ -47,10 +47,10 @@ class Logger():
     def set_logfile(self, filename):
         self.logfile = open(filename, 'a+')
 
-    def log(self, msg):
+    def log(self, msg, debug=False):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         msg = '[{0} {1}] {2}'.format(timestamp, SERIAL_NUMBER, msg)
-        if self.print_logs:
+        if self.print_logs or debug:
             print(msg)
         else:
             self.unprinted += msg + '\n'
@@ -66,8 +66,8 @@ class Logger():
 logger = Logger()
 
 
-def log(msg):
-    logger.log(msg)
+def log(msg, debug=False):
+    logger.log(msg, debug=debug)
 
 
 class ParityClient():
@@ -85,6 +85,17 @@ class ParityClient():
         self.emulator_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.emulator_socket.connect((self.emulator_address,
                                       self.emulator_port))
+
+    def get_status(self):
+        try:
+            cmd = 'GET_STATUS'
+            self.emulator_socket.send(cmd.encode())
+            expected_length = 4096
+            response = self.emulator_socket.recv(expected_length)
+            status = response.decode().split()[1]
+            return status
+        except (socket.timeout, ConnectionRefusedError):
+            return 'NONRESPONSIVE'
 
     def send_emulator(self, address, data):
         if len(data) == 0:
@@ -703,7 +714,18 @@ def load_objects(imported_globals):
 def initialize_ramtools(imported_globals):
     register_handlers(imported_globals)
     load_objects(imported_globals)
-    client.connect_emulator()
+    log('Waiting for emulator...', debug=True)
+    seen_emulator = False
+    while True:
+        sleep(1)
+        client.connect_emulator()
+        status = client.get_status()
+        if status == 'CONTENTLESS' and not seen_emulator:
+            seen_emulator = True
+            log('Emulator detected. Waiting for the game to be loaded.',
+                debug=True)
+        if client.get_status() == 'PLAYING':
+            break
 
 
 def begin_job_management():
@@ -713,7 +735,7 @@ def begin_job_management():
     process_thread = Thread(target=process_jobs, daemon=True)
     process_thread.start()
 
-    log('Beginning main loop.')
+    log('Beginning main loop.', debug=True)
     counter = 0
     while True:
         sleep(UPDATE_INTERVAL)
@@ -732,7 +754,7 @@ def begin_job_management():
         except(KeyboardInterrupt):
             _exit(0)
         except:
-            log(traceback.format_exc())
+            log(traceback.format_exc(), debug=True)
             client.connect_emulator()
             if not process_thread.is_alive():
                 process_thread = Thread(target=process_jobs, daemon=True)
