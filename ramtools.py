@@ -26,7 +26,7 @@ except:
     raise Exception('Configuration file error. ')
 
 
-UPDATE_INTERVAL = int(config['Misc']['update_interval'])
+UPDATE_INTERVAL = float(config['Misc']['update_interval'])
 SERIAL_NUMBER = int(config['Server']['serial_number'])
 HANDLERS = {}
 
@@ -746,10 +746,11 @@ def begin_job_management():
     log('Beginning main loop.', debug=True)
     counter = 0
     while True:
-        sleep(UPDATE_INTERVAL)
-        if counter % 10 == 3:
+        sleep(1)
+        now = int(time())
+        if now % 10 == 3:
             acquire_thread.join()
-        if counter % 10 == 7:
+        if now % 10 == 7:
             process_thread.join()
         try:
             if not acquire_thread.is_alive():

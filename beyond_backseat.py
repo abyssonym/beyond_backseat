@@ -545,7 +545,9 @@ class AirshipEvent(LiveEvent):
 
 
 def handler_airship(name, world, vehicle):
-    LivePatch(None, 'inject_overworld.patch').apply_patch()
+    if not hasattr(handler_airship, 'done_injection'):
+        LivePatch(None, 'inject_overworld.patch').apply_patch()
+        handler_airship.done_injection = True
     return AirshipEvent(name, 'event_airship.patch', world, vehicle)
 
 
