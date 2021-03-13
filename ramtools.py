@@ -745,6 +745,7 @@ def begin_job_management():
 
     log('Beginning main loop.', debug=True)
     counter = 0
+    client.show_message('Beyond Backseat is now running.')
     while True:
         sleep(1)
         now = int(time())

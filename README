@@ -35,3 +35,23 @@ To begin playing, follow these instructions:
 3. At this point, run the file "beyond_backseat.exe", or "beyond_backseat.py" in Python 3.
 4. You should see confirmation that the software is running in your command prompt window.
 5. In "burroughs" mode, when "burroughs_exe" joins your chat, you will be able to send commands with !beyond. Try sending a command, and the communication from the server should appear in your window. You are now connected to the session. Have fun!
+
+RECOMMENDED COMMANDS:
+!palidor: summon palidor
+!phoenix: summon phoenix
+
+!chainsaw: use a chainsaw on a random enemy
+!super-ball: use a super ball
+!smoke-bomb: use a smoke bomb to escape battle
+
+!heckle-carbunkl: summon carbunkl to cast reflect on the enemy team
+!heckle-l3-muddle: cast L3 Muddle on both allies and enemies
+!heckle-megalixir: fully recover all enemies
+
+!ghosttrain: summon a phantom train to attack the party
+
+!banon: force Banon to join the party
+!party-change: get rid of the Banon problem
+
+!chocobo: summon a chocobo to ride
+!ruin: warp to the world of ruin

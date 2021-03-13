@@ -548,10 +548,31 @@ def handler_airship(name, world, vehicle):
     if not hasattr(handler_airship, 'done_injection'):
         LivePatch(None, 'inject_overworld.patch').apply_patch()
         handler_airship.done_injection = True
+    if vehicle == 'chocobo':
+        client.show_message('WARK!!')
+    elif world == 'ruin':
+        client.show_message('On that day, the world was changed forever...')
+    elif world == 'balance':
+        client.show_message("Delightful is the light of dawn. "
+                            "Noble is the heart of man.")
+    elif vehicle == 'airship':
+        client.show_message("We're gonna get us another one... "
+                            "Airship, that is!")
     return AirshipEvent(name, 'event_airship.patch', world, vehicle)
 
 
 def handler_boss(name, formation_index):
+    if name == 'ghosttrain':
+        client.show_message('ALL ABOARD!!')
+    elif name == 'dadaluma':
+        client.show_message('Good day, gentle folks. Can I be of service?')
+    elif name == 'doom-gaze':
+        client.show_message('A black wind howls...')
+    elif name == 'ultros':
+        client.show_message("Don't tease the octopus, kids!")
+    elif name == 'siegfried':
+        client.show_message('Aha! The ox bellows!')
+
     le = LiveEvent(name, 'event_boss.patch')
     le.set_label('formation_index', formation_index)
     return le
