@@ -236,6 +236,16 @@ class LiveEvent(LiveMixin):
     def finished(self):
         return self.state['wait']
 
+    @property
+    def is_disposable(self):
+        if not hasattr(self, 'state'):
+            return False
+        if 'event' not in self.state:
+            return False
+        if self.state['event']:
+            return False
+        return True
+
     def do_ready(self):
         self.apply_patch()
         self.unset_lock_bit(self.READY)

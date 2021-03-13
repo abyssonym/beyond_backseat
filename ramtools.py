@@ -692,7 +692,15 @@ def acquire_jobs():
             log('Jobs: %s' % ','.join([j.name for j in JOBS]))
             if mode == 'random':
                 while len(JOBS) > int(config['Misc']['random_max_queue']):
-                    JOBS.pop(0)
+                    disposable = [
+                        j for j in JOBS if hasattr(j, 'is_disposable')
+                        and j.is_disposable]
+                    if not disposable:
+                        break
+                    for j in JOBS:
+                        if j in disposable:
+                            JOBS.remove(j)
+                            break
                 sleep(int(config['Misc']['random_interval']))
 
 
