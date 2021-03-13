@@ -471,6 +471,71 @@ def handler_party_change(name):
     return PartyChangeEvent(name, 'event_party_change.patch')
 
 
+class AirshipEvent(LiveEvent):
+    # These are overworld events, which means they use the lock flag #$10
+    # and have a different scripting language.
+    MAP_INDEX_ADDRESS = 0x7e1f64
+    MAP_X_ADDRESS = 0x7e00e0
+    MAP_Y_ADDRESS = 0x7e00e2
+    EVENT_BITS_ADDRESS = 0x7e1e80
+
+    def __init__(self, name, patch_filename, world, vehicle):
+        self.world = world.lower()
+
+        if isinstance(vehicle, str):
+            self.vehicle = {'airship': 1,
+                            'chocobo': 2}[vehicle]
+        else:
+            self.vehicle = vehicle
+        assert isinstance(self.vehicle, int)
+
+        super().__init__(name, patch_filename)
+
+    @property
+    def finished(self):
+        return self.state['ready']
+
+    def set_event_bit(self, bit_index, truth=True):
+        address = self.EVENT_BITS_ADDRESS + (bit_index >> 3)
+        bit = 1 << (bit_index & 0b111)
+        old_value = self.client.read_emulator(address, 1)[0]
+        if truth:
+            value = old_value | bit
+        else:
+            value = (old_value | bit) ^ bit
+        if value != old_value:
+            self.client.send_emulator(address, [value])
+
+    def do_ready(self):
+        if self.world == 'balance':
+            self.map_index = 0
+            self.set_event_bit(0xa4, False)
+        elif self.world == 'ruin':
+            self.map_index = 1
+            self.set_event_bit(0xa4, True)
+        else:
+            map_index = self.client.read_emulator(self.MAP_INDEX_ADDRESS, 2)
+            map_index = map_index[0] | (map_index[1] << 8)
+            assert 0 <= map_index & 0x1ff <= 1
+            self.map_index = map_index & 1
+        map_index = [self.map_index & 0xff, self.map_index >> 8]
+        self.set_label('map_index', map_index)
+        map_x = self.client.read_emulator(self.MAP_X_ADDRESS, 1)
+        self.set_label('x_coordinate', map_x)
+        map_y = self.client.read_emulator(self.MAP_Y_ADDRESS, 1)
+        self.set_label('y_coordinate', map_y)
+        self.set_label('vehicle', self.vehicle)
+        if self.vehicle == 1:
+            self.set_event_bit(0x16f, True)
+            self.set_event_bit(0x1b9, True)
+        super().do_ready()
+
+
+def handler_airship(name, world, vehicle):
+    LivePatch(None, 'inject_overworld.patch').apply_patch()
+    return AirshipEvent(name, 'event_airship.patch', world, vehicle)
+
+
 def main():
     initialize_ramtools(globals())
     client.send_emulator(LiveEvent.LOCK_ADDRESS, [0])

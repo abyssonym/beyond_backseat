@@ -1,0 +1,20 @@
+.def ready 20
+.def event 10
+.def wait 80
+
+# write event instructions here
+ca1000: d2
+.label map_index
+        ff ff
+.label x_coordinate
+        ff
+.label y_coordinate
+        ff
+.label vehicle
+        ff
+ca1006: ff
+
+VALIDATION
+
+c0bcf9: a2 00 00
+cc985b: d2 cc
