@@ -549,6 +549,12 @@ def handler_airship(name, world, vehicle):
     return AirshipEvent(name, 'event_airship.patch', world, vehicle)
 
 
+def handler_boss(name, formation_index):
+    le = LiveEvent(name, 'event_boss.patch')
+    le.set_label('formation_index', formation_index)
+    return le
+
+
 def main():
     log('You are running Beyond Backseat version %s.' % VERSION, debug=True)
     initialize_ramtools(globals())

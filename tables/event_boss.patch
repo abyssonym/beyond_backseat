@@ -9,7 +9,11 @@
 7e078e: 01
 
 # write event instructions here
-cc985b: 4d 44 3f    # ghost train
+cc985b: 4d
+.label formation_index
+        44    # ghost train
+.label background_bg
+        3f
         96
         fc
 
