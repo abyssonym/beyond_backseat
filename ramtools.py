@@ -144,6 +144,7 @@ class LivePatch():
         self.definitions = {}
         self.labels = {}
         self.name = name
+        self.approved_addresses = set([])
 
         validation_flag = False
         self.lenalpha = lambda s: (-len(s), s)
@@ -211,10 +212,19 @@ class LivePatch():
     def verify_nonhex(self, s):
         return any([c for c in s if c.lower() not in '0123456789abcdef'])
 
+    def check_approved_addresses(self):
+        for (key, value) in self.patch.items():
+            if key not in self.approved_addresses:
+                raise Exception(
+                    'Error: Discovered unapproved address '
+                    '{0:x} in patch {1}'.format(key, self.patch_filename))
+
     def generate_patch_from_master(self):
+        self.check_approved_addresses()  # check here to avoid dropping addrs
         validation_flag = False
         self.labels = {}
         self.patch, self.validation = {}, {}
+        self.approved_addresses = set([])
         data = self.patch
         previous_address = None
         for line in self.master:
@@ -245,6 +255,7 @@ class LivePatch():
                 if self.labels[l] is None:
                     self.labels[l] = address
                     break
+            self.approved_addresses.add(address)
 
             previous_address = address
 
@@ -307,6 +318,7 @@ class LivePatch():
         self.write(self.backup, force=True)
 
     def apply_patch(self):
+        self.check_approved_addresses()
         self.write(self.patch)
 
     def write(self, data, force=False):

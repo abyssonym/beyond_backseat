@@ -371,16 +371,12 @@ class LiveAirstrike(LiveMixin):
 
         caaa = int(self.definitions['counterattack_assignments_address'], 0x10)
         caaa_actor = caaa + (actor_index * 2)
-        #assert caaa_actor not in self.patch
-        self.patch[caaa_actor] = 0
 
         tail = client.read_emulator(
             self.labels['counterattacker_queue_tail'], 1)[0]
 
         caqa = int(self.definitions['counterattacker_queue_address'], 0x10)
         caqa_tail = caqa + tail
-        #assert caqa_tail not in self.patch
-        self.patch[caqa_tail] = actor_index * 2
 
         tail = (tail + 1) & 0xff
         self.set_label('counterattacker_queue_tail', tail)
@@ -389,6 +385,8 @@ class LiveAirstrike(LiveMixin):
         self.unset_lock_bit(self.WAIT)
         self.client.send_emulator(self.VERIFY_COMMAND, [self.attack_command,
                                                         self.attack_spell])
+        self.client.send_emulator(caaa_actor, [0])
+        self.client.send_emulator(caqa_tail, [actor_index * 2])
         self.apply_patch()
 
     def do_wait(self):
