@@ -11,9 +11,9 @@
 
 # this section resets the "wait" bit at the end of battle,
 # in the event that the airstrike did not occur
-c100af: 5c c0 d8 c0
+c100af: 5c c0 d8 XX
 c100b3: ea
-c0d8c0: ad lock_address
+XXd8c0: ad lock_address
         29 clear_airstrike
         8d lock_address
         ad 4b 2f
@@ -24,9 +24,9 @@ c0d8c0: ad lock_address
 
 # this section sets the "wait" bit after all counterattacks are executed
 # (to prevent enemy counters from consuming airstrikes)
-c20062: 22 e0 d7 c0
+c20062: 22 e0 d7 XX
         ea ea
-c0d7e0: ad lock_address
+XXd7e0: ad lock_address
         89 verify
         f0 exit_counter_queue_check
         89 wait
@@ -42,8 +42,8 @@ c0d7e0: ad lock_address
         6b
 
 # this section activates "waiting" mode when an airstrike is announced
-c21121: 5c 00 d8 c0
-c0d800: ad lock_address
+c21121: 5c 00 d8 XX
+XXd800: ad lock_address
         89 verify
         d0 act_or_wait
         89 event
@@ -62,8 +62,8 @@ c0d800: ad lock_address
         5c 8b 11 c2
 
 # this section disables the "step forward" casting animation
-c213d8: 22 40 d8 c0
-c0d840: ad lock_address
+c213d8: 22 40 d8 XX
+XXd840: ad lock_address
         29 ready
         d0 no_step
         a9 10
@@ -75,8 +75,8 @@ c0d840: ad lock_address
         6b
 
 # this section allows airstrikes to bypass imp/mute
-c23201: 5c 60 d8 c0
-c0d860: ad a5 11
+c23201: 5c 60 d8 XX
+XXd860: ad a5 11
         f0 skip_mute_check
         ad lock_address
         89 verify
@@ -86,8 +86,8 @@ c0d860: ad a5 11
         5c 25 32 c2
 
 # this section confirms that the counterattack has executed
-c23666: 5c 80 d8 c0
-c0d880: ad lock_address
+c23666: 5c 80 d8 XX
+XXd880: ad lock_address
         89 verify
         f0 no_flag
         ad verify_command_address

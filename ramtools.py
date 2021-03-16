@@ -59,7 +59,9 @@ class Logger():
             self.logfile.flush()
 
     def print_unprinted(self):
-        print(self.unprinted.strip())
+        s = self.unprinted.strip()
+        if s:
+            print(s)
         self.unprinted = ''
 
 
@@ -165,6 +167,8 @@ client = ParityClient(config['Emulator']['address'],
 
 
 class LivePatch():
+    GLOBAL_DEFINITIONS = {}
+
     def __init__(self, name, patch_filename, force_valid=False):
         self.client = client
         self.patch_filename = patch_filename
@@ -191,6 +195,11 @@ class LivePatch():
             line = line.strip()
             if not line:
                 continue
+
+            for definition in sorted(self.GLOBAL_DEFINITIONS,
+                                     key=self.lenalpha):
+                line = line.replace(definition,
+                                    self.GLOBAL_DEFINITIONS[definition])
 
             if line == 'VALIDATION':
                 self.master.append(line)
@@ -682,6 +691,8 @@ def input_job_from_command_line():
         command = None
 
     if not command:
+        if JOBS:
+            print(JOBS)
         return
 
     job = command_to_job(command)

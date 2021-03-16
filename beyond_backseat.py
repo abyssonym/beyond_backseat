@@ -625,9 +625,6 @@ class AirshipEvent(LiveEvent):
 
 
 def handler_airship(name, world, vehicle):
-    if not hasattr(handler_airship, 'done_injection'):
-        LivePatch(None, 'inject_overworld.patch').apply_patch()
-        handler_airship.done_injection = True
     if vehicle == 'chocobo':
         client.show_message('WARK!!')
     elif world == 'ruin':
@@ -669,9 +666,15 @@ def main():
     initialize_ramtools(globals())
     client.send_emulator(LiveEvent.LOCK_ADDRESS, [0])
 
+    if 'free_space_bank' in config['Emulator']:
+        LivePatch.GLOBAL_DEFINITIONS['XX'] = (
+            config['Emulator']['free_space_bank'])
+    else:
+        LivePatch.GLOBAL_DEFINITIONS['XX'] = 'c0'
     LivePatch(None, 'cleanup_opcode.patch').apply_patch()
     LivePatch(None, 'inject_event.patch').apply_patch()
     LivePatch(None, 'battle_wait.patch').apply_patch()
+    LivePatch(None, 'inject_overworld.patch').apply_patch()
 
     for i in range(4):
         PlayerCharacter()

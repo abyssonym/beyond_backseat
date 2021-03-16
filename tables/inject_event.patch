@@ -4,9 +4,9 @@
 
 7e11e8: 00
 
-c0bcc1: 5c 40 d7 c0
+c0bcc1: 5c 40 d7 XX
 # note: entering this section in 16 bit mode
-c0d740: c5 af
+XXd740: c5 af
         d0 idle
         5c d3 bc c0
 .label idle
