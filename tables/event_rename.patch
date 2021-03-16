@@ -10,6 +10,7 @@
 
 # write event instructions here
 cc985b:
+        b5 02
         98
 .label character_index
         ff

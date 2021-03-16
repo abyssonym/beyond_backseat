@@ -661,6 +661,12 @@ def handler_semaphore(name):
     client.send_emulator(ADDRESS, DATA)
 
 
+def handler_rename(name, character_index):
+    le = LiveEvent(name, 'event_rename.patch')
+    le.set_label('character_index', character_index)
+    return le
+
+
 def main():
     log('You are running Beyond Backseat version %s.' % VERSION, debug=True)
     initialize_ramtools(globals())
