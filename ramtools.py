@@ -732,6 +732,7 @@ def acquire_jobs():
                         break
                     for j in JOBS:
                         if j in disposable:
+                            log('Dropped job: %s (queue too big)' % j)
                             JOBS.remove(j)
                             break
                 sleep(int(config['Misc']['random_interval']))

@@ -2,6 +2,8 @@
 .def ready 20
 .def lock_address e811
 
+7e11e8: 00
+
 c0bcc1: 5c 40 d7 c0
 # note: entering this section in 16 bit mode
 c0d740: c5 af
@@ -28,6 +30,7 @@ c0d740: c5 af
 
 VALIDATION
 
+7e11e8: 00
 c0bcc1: c5 af
         f0 0e
 c0bcf9: a2 00 00

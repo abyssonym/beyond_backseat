@@ -7,6 +7,8 @@
 .def verify_command_address ea11
 .def verify_spell_address eb11
 
+7e11e8: 00
+
 # this section resets the "wait" bit at the end of battle,
 # in the event that the airstrike did not occur
 c100af: 5c c0 d8 c0
@@ -95,6 +97,7 @@ c0d880: ad lock_address
 
 VALIDATION
 
+7e11e8: 00
 c100af: ad 4b 2f
         30 07
 c21121: ad 41 2f

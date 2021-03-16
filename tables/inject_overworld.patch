@@ -3,6 +3,8 @@
 .def wait 80
 .def lock_address e911
 
+7e11e9: 00
+
 ee1d90: 5c 80 d7 c0
 c0d780: a5 ec
         d0 finished
@@ -46,6 +48,7 @@ c41f41: 6e f5
 
 VALIDATION
 
+7e11e9: 00
 ee1d90: e2 20
         a5 e8
 c0d780: ffffffff

@@ -183,6 +183,20 @@ class LiveMixin(LivePatch):
         return s
 
     @property
+    def is_disposable(self):
+        if self.is_current:
+            return False
+        if not hasattr(self, 'state'):
+            return False
+        if 'event' not in self.state:
+            return False
+        if self.state['event']:
+            return False
+        if 'ready' in self.state and self.state['ready']:
+            return False
+        return True
+
+    @property
     def finished(self):
         return self.state['wait']
 
@@ -312,16 +326,6 @@ class LiveMixin(LivePatch):
 
 
 class LiveEvent(LiveMixin):
-    @property
-    def is_disposable(self):
-        if not hasattr(self, 'state'):
-            return False
-        if 'event' not in self.state:
-            return False
-        if self.state['event']:
-            return False
-        return True
-
     def do_ready(self):
         self.apply_patch()
         self.unset_lock_bit(self.READY)
