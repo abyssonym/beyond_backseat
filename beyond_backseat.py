@@ -556,6 +556,10 @@ def handler_banon(name):
     return PartyChangeEvent(name, 'event_banon.patch', locked_character=0xe)
 
 
+def handler_umaro(name):
+    return PartyChangeEvent(name, 'event_umaro.patch', locked_character=0xd)
+
+
 def handler_party_change(name):
     return PartyChangeEvent(name, 'event_party_change.patch')
 

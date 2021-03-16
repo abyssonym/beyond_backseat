@@ -9,11 +9,15 @@
 7e078e: 01
 
 # write event instructions here
-cc985b: b2 b9 fd 00
+cc985b: 40 0d 0d
+        7f 0d 0d
+        3d 0d
+        37 0d 0d
+        43 0d 05
 .label remove_characters
         ff
         47
-        99 01 00 40
+        99 01 00 20
         47
 .label remove_characters_2
         ff
