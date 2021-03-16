@@ -1,5 +1,5 @@
+.def event 40
 .def ready 20
-.def event 10
 .def wait 80
 
 # write event instructions here

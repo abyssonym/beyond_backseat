@@ -141,49 +141,102 @@ class LiveMixin(LivePatch):
     POLL_INTERVAL = 0.1
     LOCK_ADDRESS = 0x7e11e8
     IO_WAIT = 0.02
+    MAX_LOCK_WAIT = 10
+    CURRENTS = {}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.previous_poll = 0
         self.state = {}
+        self.last_update = None
         for key in ['EVENT', 'READY', 'VERIFY', 'WAIT']:
             if key.lower() in self.definitions:
                 setattr(self, key,
                         int(self.definitions[key.lower()], 0x10))
             self.state[key.lower()] = False
 
+        self.LOCK_KEY = (self.LOCK_ADDRESS, self.EVENT)
+
+        if self.LOCK_KEY not in self.CURRENTS:
+            self.CURRENTS[self.LOCK_KEY] = None
+
     def __repr__(self):
         if hasattr(self, 'name') and self.name:
             s = self.name
         else:
             s = self.__class__.__name__
-        s = '{0}-{1:x}'.format(s, id(self))
+
+        status = None
+        for key in ['EVENT', 'READY', 'VERIFY', 'WAIT']:
+            key = key.lower()
+            if key in self.state and self.state[key]:
+                status = key
+
+        if status is None:
+            s = '{0}-{1:x}'.format(s, id(self) & 0xffff)
+        else:
+            s = '{0}-{1:x}-{2}'.format(s, id(self) & 0xffff, status)
+
+        if self.is_current:
+            s = '*%s' % s
+
         return s
+
+    @property
+    def finished(self):
+        return self.state['wait']
+
+    @property
+    def is_current(self):
+        current = self.CURRENTS[self.LOCK_KEY]
+        if current and current.finished:
+            self.CURRENTS[self.LOCK_KEY] = None
+        if current is self:
+            return True
+        return False
 
     def get_lock_status(self):
         sleep(self.IO_WAIT)
-        self.lock = client.read_emulator(self.LOCK_ADDRESS, 1)[0]
+        lock = client.read_emulator(self.LOCK_ADDRESS, 1)[0]
+        if hasattr(self, 'lock') and lock != self.lock:
+            for key in ['EVENT', 'READY', 'VERIFY', 'WAIT']:
+                if hasattr(self, key):
+                    bit = getattr(self, key)
+                    if lock & bit != self.lock & bit:
+                        self.last_update = time()
+
+        self.lock = lock
         return self.lock
 
     def set_lock_bit(self, bit):
         lock = self.get_lock_status()
         if lock & bit != bit:
+            self.last_update = time()
             client.send_emulator(self.LOCK_ADDRESS, [lock | bit])
             self.lock |= bit
+            sleep(self.IO_WAIT)
 
     def unset_lock_bit(self, bit):
         lock = self.get_lock_status()
         if lock & bit:
+            self.last_update = time()
             client.send_emulator(self.LOCK_ADDRESS, [(lock | bit) ^ bit])
             self.lock = (self.lock | bit) ^ bit
+            sleep(self.IO_WAIT)
 
     def reset(self):
+        if self.finished:
+            return
         bits = 0
         for key in ['EVENT', 'READY', 'VERIFY', 'WAIT']:
             if hasattr(self, key):
                 bits |= getattr(self, key)
             self.state[key.lower()] = False
         self.unset_lock_bit(bits)
+        if self.is_current:
+            self.CURRENTS[self.LOCK_KEY] = None
+        assert not self.is_current
+        sleep(self.IO_WAIT)
 
     def poll_wait(self):
         now = time()
@@ -193,15 +246,27 @@ class LiveMixin(LivePatch):
         self.previous_poll = now
 
     def poll(self):
-        self.poll_wait()
         if self.finished:
+            if self.is_current:
+                self.CURRENTS[self.LOCK_KEY] = None
             return
 
+        if self.CURRENTS[self.LOCK_KEY] is None:
+            self.CURRENTS[self.LOCK_KEY] = self
+            assert self.is_current
+
+        if not self.is_current:
+            return
+
+
+        self.poll_wait()
         lock = self.get_lock_status()
+        self.break_lock()
 
         if not (self.state['event'] or lock & self.EVENT):
             self.do_event()
 
+        old_state = dict(self.state)
         if self.state['event']:
             for key in ['READY', 'VERIFY', 'WAIT']:
                 if (hasattr(self, key) and lock & getattr(self, key)
@@ -210,6 +275,9 @@ class LiveMixin(LivePatch):
                     f()
 
         self.do_extra()
+
+        if self.state != old_state:
+            sleep(self.IO_WAIT)
 
     def do_event(self):
         self.set_lock_bit(self.EVENT)
@@ -227,15 +295,23 @@ class LiveMixin(LivePatch):
     def do_extra(self):
         pass
 
+    def break_lock(self):
+        if self.finished or self.state['ready'] or not self.is_current:
+            return
+
+        now = time()
+        if self.last_update is None:
+            self.last_update = now
+
+        if (self.last_update and self.lock & self.EVENT
+                and now - self.last_update > self.MAX_LOCK_WAIT):
+            self.reset()
+
     def run(self):
         self.poll()
 
 
 class LiveEvent(LiveMixin):
-    @property
-    def finished(self):
-        return self.state['wait']
-
     @property
     def is_disposable(self):
         if not hasattr(self, 'state'):
@@ -262,6 +338,7 @@ class LiveAirstrike(LiveMixin):
     LOCK_ADDRESS = 0x7e11e8
     VERIFY_COMMAND = 0x7e11ea
     VERIFY_SPELL = VERIFY_COMMAND + 1
+    MAX_LOCK_WAIT = 6
     current_airstrike = None
     every = []
 
@@ -289,34 +366,10 @@ class LiveAirstrike(LiveMixin):
         LiveAirstrike.every.append(self)
         client.show_message('Airstrike: {0}'.format(name.upper()))
 
-    def __repr__(self):
-        s = self.name
-        if self.is_current:
-            s = '*{0}'.format(s)
-        s = '{0}-{1:x}'.format(s, id(self))
-        return s
-
-    @property
-    def is_current(self):
-        return LiveAirstrike.current_airstrike is self
-
-    @property
-    def finished(self):
-        finished = self.state['wait']
-        if finished and self.is_current:
-            LiveAirstrike.current_airstrike = None
-        return finished
-
     def reset(self):
+        super().reset()
         if self.is_current:
             LiveAirstrike.current_airstrike = None
-        super().reset()
-
-    def poll(self):
-        if LiveAirstrike.current_airstrike is None:
-            LiveAirstrike.current_airstrike = self
-        if self.is_current:
-            super().poll()
 
     def do_ready(self):
         self.set_label('attack_command', self.attack_command)
@@ -366,6 +419,7 @@ class LiveAirstrike(LiveMixin):
                                     if m.is_valid_target]
             if not actor_candidates:
                 self.reset()
+                sleep(self.MAX_LOCK_WAIT)
                 return
 
         actor_index = random.choice(actor_candidates).offset_index
@@ -491,6 +545,7 @@ class AirshipEvent(LiveEvent):
     MAP_X_ADDRESS = 0x7e00e0
     MAP_Y_ADDRESS = 0x7e00e2
     EVENT_BITS_ADDRESS = 0x7e1e80
+    LOCK_ADDRESS = 0x7e11e9
 
     def __init__(self, name, patch_filename, world, vehicle):
         self.world = world.lower()
@@ -529,7 +584,9 @@ class AirshipEvent(LiveEvent):
         else:
             map_index = self.client.read_emulator(self.MAP_INDEX_ADDRESS, 2)
             map_index = map_index[0] | (map_index[1] << 8)
-            assert 0 <= map_index & 0x1ff <= 1
+            if not 0 <= map_index & 0x1ff <= 1:
+                self.reset()
+                return
             self.map_index = map_index & 1
         map_index = [self.map_index & 0xff, self.map_index >> 8]
         self.set_label('map_index', map_index)
@@ -542,6 +599,7 @@ class AirshipEvent(LiveEvent):
             self.set_event_bit(0x16f, True)
             self.set_event_bit(0x1b9, True)
         super().do_ready()
+        self.state['wait'] = True
 
 
 def handler_airship(name, world, vehicle):

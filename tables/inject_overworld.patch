@@ -1,6 +1,7 @@
-.def event 10
+.def event 40
 .def ready 20
-.def lock_address e811
+.def wait 80
+.def lock_address e911
 
 ee1d90: 5c 80 d7 c0
 c0d780: a5 ec

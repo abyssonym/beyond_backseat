@@ -73,11 +73,13 @@ def log(msg, debug=False):
 class ParityClient():
     NUM_RETRIES = 10
     RETRY_INTERVAL = 0.02
+    MAX_LOCK_WAIT = 6
 
     def __init__(self, emulator_address, emulator_port):
         self.emulator_address = emulator_address
         self.emulator_port = int(emulator_port)
         self.emulator_socket = None
+        self.lock = False
 
     def connect_emulator(self):
         if self.emulator_socket and self.emulator_socket.fileno() >= 0:
@@ -97,10 +99,24 @@ class ParityClient():
         except (socket.timeout, ConnectionRefusedError):
             return 'NONRESPONSIVE'
 
+    def acquire_lock(self):
+        start_time = time()
+        while self.lock:
+            now = time()
+            elapsed = now - start_time
+            if self.MAX_LOCK_WAIT > 0 and elapsed > self.MAX_LOCK_WAIT:
+                break
+            sleep(self.RETRY_INTERVAL)
+        self.lock = True
+
+    def release_lock(self):
+        self.lock = False
+
     def send_emulator(self, address, data):
         if len(data) == 0:
             log('Warning: Zero-length write at {0:x}.'.format(address))
             return
+        self.acquire_lock()
         MAX_WRITE_LENGTH = 4
         while data:
             subdata, data = data[:MAX_WRITE_LENGTH], data[MAX_WRITE_LENGTH:]
@@ -110,15 +126,18 @@ class ParityClient():
             cmd = cmd.encode()
             self.emulator_socket.send(cmd)
             address += len(subdata)
+        self.release_lock()
 
     def read_emulator(self, address, num_bytes):
         cmd = 'READ_CORE_RAM {0:0>6x} {1}'.format(address, num_bytes)
+        self.acquire_lock()
         for i in range(self.NUM_RETRIES):
             self.emulator_socket.send(cmd.encode())
             expected_length = 21 + (3 * num_bytes)
             try:
                 data = self.emulator_socket.recv(expected_length)
             except socket.timeout:
+                self.release_lock()
                 raise IOError('Emulator not responding.')
             data = data.decode('ascii').strip()
             data = [int(d, 0x10) for d in data.split(' ')[2:]]
@@ -128,8 +147,10 @@ class ParityClient():
                 address, len(data), num_bytes))
             sleep(self.RETRY_INTERVAL * (1.5**i))
         else:
+            self.release_lock()
             raise IOError('Emulator read error: {0:x} {1}/{2} bytes'.format(
                 address, len(data), num_bytes))
+        self.release_lock()
         return data
 
     def show_message(self, msg):
@@ -156,6 +177,7 @@ class LivePatch():
         self.labels = {}
         self.name = name
         self.approved_addresses = set([])
+        self.applied_patch = False
 
         validation_flag = False
         self.lenalpha = lambda s: (-len(s), s)
@@ -219,6 +241,9 @@ class LivePatch():
 
         self.generate_patch_from_master()
         self.validate(force_valid=force_valid)
+
+    def __repr__(self):
+        return self.name
 
     def verify_nonhex(self, s):
         return any([c for c in s if c.lower() not in '0123456789abcdef'])
@@ -331,6 +356,7 @@ class LivePatch():
     def apply_patch(self):
         self.check_approved_addresses()
         self.write(self.patch)
+        self.applied_patch = True
 
     def write(self, data, force=False):
         written_zones = []
@@ -650,8 +676,14 @@ def input_job_from_command_line():
         command = input('COMMAND: ')
     except EOFError:
         _exit(0)
+
+    if command == '!debug':
+        import pdb; pdb.set_trace()
+        command = None
+
     if not command:
         return
+
     job = command_to_job(command)
     return job
 
@@ -689,7 +721,8 @@ def acquire_jobs():
         if job is not None:
             log('Adding job: %s' % job)
             JOBS.append(job)
-            log('Jobs: %s' % ','.join([j.name for j in JOBS]))
+            log('Jobs (%s): %s' % (len(JOBS),
+                                   ','.join([str(j) for j in JOBS])))
             if mode == 'random':
                 while len(JOBS) > int(config['Misc']['random_max_queue']):
                     disposable = [
@@ -766,6 +799,7 @@ def begin_job_management():
         except:
             log(traceback.format_exc(), debug=True)
             client.connect_emulator()
+            client.release_lock()
             if not process_thread.is_alive():
                 process_thread = Thread(target=process_jobs, daemon=True)
                 process_thread.start()
