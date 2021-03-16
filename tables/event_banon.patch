@@ -13,8 +13,11 @@ cc985b: b2 b9 fd 00
         3f 0e 01
 .label remove_characters
         ff
+        47
         99 01 00 40
         47
+.label remove_characters_2
+        ff
 #6b MM 0M XX YY 00
 # MMM:1f64,XX:1fc0,YY:1fc1
         6b

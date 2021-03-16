@@ -510,16 +510,25 @@ class PartyChangeEvent(LiveEvent):
 
     def do_ready(self):
         if self.locked_character is not None:
-            remove_characters = []
+            remove_characters = [0x3f, self.locked_character, 0x00]
+            remove_characters_2 = []
             for pdo in PartyDataObject.every:
+                if pdo.index == self.locked_character:
+                    continue
                 if pdo.get_bit('p1'):
-                    if pdo.index == self.locked_character:
-                        continue
                     remove_characters.extend([0x3f, pdo.index, 0x00])
+                    remove_characters.extend([0x3d, pdo.index])
+                    remove_characters_2.extend([0x42, pdo.index])
+                else:
+                    remove_characters.extend([0x3e, pdo.index])
+                    pass
+            remove_characters.extend([0x3f, self.locked_character, 0x01])
             self.set_label('remove_characters', remove_characters,
                            change_length=True)
+            self.set_label('remove_characters_2', remove_characters_2,
+                           change_length=True)
         map_index = self.client.read_emulator(self.MAP_INDEX_ADDRESS, 2)
-        map_index = [map_index[0], map_index[1] & 1]
+        map_index = [map_index[0], 0x20 | (map_index[1] & 1)]
         self.set_label('map_index', map_index)
 
         map_x = self.client.read_emulator(self.MAP_X_ADDRESS, 1)
