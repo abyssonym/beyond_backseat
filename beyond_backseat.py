@@ -272,15 +272,14 @@ class LiveMixin(LivePatch):
         if not self.is_current:
             return
 
-
         self.poll_wait()
         lock = self.get_lock_status()
         self.break_lock()
 
+        old_state = dict(self.state)
         if not (self.state['event'] or lock & self.EVENT):
             self.do_event()
 
-        old_state = dict(self.state)
         if self.state['event']:
             for key in ['READY', 'VERIFY', 'WAIT']:
                 if (hasattr(self, key) and lock & getattr(self, key)
@@ -291,7 +290,17 @@ class LiveMixin(LivePatch):
         self.do_extra()
 
         if self.state != old_state:
-            sleep(self.IO_WAIT)
+            lock = self.get_lock_status()
+
+        state_progress = False
+        lock_progress = False
+        state_progress =  any([self.state[k] for k in
+                               ['event', 'ready', 'verify', 'wait']])
+        lock_progress = any([lock & getattr(self, k)
+                            for k in ['EVENT', 'READY', 'VERIFY', 'WAIT']
+                            if hasattr(self, k)])
+        if state_progress and not lock_progress:
+            self.reset()
 
     def do_event(self):
         self.set_lock_bit(self.EVENT)
@@ -647,6 +656,12 @@ def handler_boss(name, formation_index):
     le = LiveEvent(name, 'event_boss.patch')
     le.set_label('formation_index', formation_index)
     return le
+
+
+def handler_semaphore(name):
+    ADDRESS = 0x7e11e8
+    DATA = [0, 0]
+    client.send_emulator(ADDRESS, DATA)
 
 
 def main():
