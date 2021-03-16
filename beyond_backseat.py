@@ -8,7 +8,7 @@ from ramtools import (classproperty, client, config, logger, log,
                       LivePatch, TableObject)
 
 
-VERSION = 2
+VERSION = 3
 
 
 logger.set_logfile('beyond_backseat.log')
