@@ -22,6 +22,25 @@ c0d8c0: ad lock_address
 .label continue_current_music
         5c bb 00 c1
 
+# this section sets the "wait" bit after all counterattacks are executed
+# (to prevent enemy counters from consuming airstrikes)
+c20062: 22 e0 d7 c0
+        ea ea
+c0d7e0: ad lock_address
+        89 verify
+        f0 exit_counter_queue_check
+        89 wait
+        d0 exit_counter_queue_check
+        89 ready
+        d0 exit_counter_queue_check
+        09 wait
+        49 verify
+        8d lock_address
+.label exit_counter_queue_check
+        ad 3a 3a
+        2d 2f 2f
+        6b
+
 # this section activates "waiting" mode when an airstrike is announced
 c21121: 5c 00 d8 c0
 c0d800: ad lock_address
@@ -78,11 +97,8 @@ c0d880: ad lock_address
         cd 21 34
         d0 no_flag
         ad lock_address
-        09 wait
         09 ready
         49 ready
-        49 verify
-        0d lock_address
         8d lock_address
         a9 ff
         8d verify_command_address
